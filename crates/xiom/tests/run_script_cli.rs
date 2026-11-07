@@ -490,3 +490,51 @@ fn m228_run_propagates_program_exit_code() {
         "xiom --run must exit with the program's code (B-08); stderr:\n{stderr}"
     );
 }
+
+// REL-20261104 (P0 Str lifetime/ownership): v0.65.6 freed a returned Str
+// accumulator at scope exit when it was moved out through a match-arm block or
+// an enum-variant constructor. stdlib `http_build_request` returned stale
+// bytes (~1/8 processes) and orbitdb schema_row fuzz seed 1000 failed rc=19.
+// Compile the chain probe once, then run the produced binary in 20 FRESH
+// processes: the defect depended on per-process allocator layout.
+#[test]
+fn rel20261104_str_rebind_return_chain_repeated_processes() {
+    let fixture = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("..")
+        .join("tests")
+        .join("regression")
+        .join("rel20261104_str_rebind_chain")
+        .join("main.xi");
+    let exe = std::env::temp_dir().join(format!(
+        "rel20261104_str_chain_{}.exe",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_file(&exe);
+    let compile = Command::new(xiom_bin())
+        .arg(&fixture)
+        .arg("-o")
+        .arg(&exe)
+        .output()
+        .unwrap_or_else(|e| panic!("failed to spawn '{}': {e}", xiom_bin()));
+    assert!(
+        compile.status.success() && exe.exists(),
+        "REL-20261104: the Str rebind chain probe must compile; exit={:?}\nstderr:\n{}",
+        compile.status.code(),
+        String::from_utf8_lossy(&compile.stderr)
+    );
+    for run in 0..20 {
+        let out = Command::new(&exe).output().unwrap_or_else(|e| {
+            panic!("failed to spawn '{}' (run {run}): {e}", exe.display())
+        });
+        assert_eq!(
+            out.status.code(),
+            Some(0),
+            "REL-20261104: returned Str was stale/freed (run {run}); \
+             stdout:\n{}\nstderr:\n{}",
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr)
+        );
+    }
+    let _ = std::fs::remove_file(&exe);
+}

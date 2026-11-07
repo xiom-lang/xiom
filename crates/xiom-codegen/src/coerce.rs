@@ -16,21 +16,30 @@ impl IrEmitter {
     /// address; an argument that is already address-valued (`&x`, a
     /// reference/pointer-typed local, a `&T`-returning call) passes through
     /// unchanged, so explicit-borrow call sites keep their semantics.
+    ///
+    /// Returns the (value, LLVM type) pair for the indirect call. The uniform
+    /// closure/fn-pointer ABI carries every explicit argument as `i64`, and a
+    /// materialized reference is exactly such an `i64` address. The ORIGINAL
+    /// value type must not be reported back: for a `Str` value it is `i8*`,
+    /// which made the emitted `fn_ptr_ty` say `i8*` while the `ptrtoint`ed
+    /// address was `i64` (`'%tmp' defined with type 'i64' but expected 'ptr'`,
+    /// REL-20261010-1553 Str comparator). The Int form never surfaced this
+    /// because its value type was already `i64`.
     pub(crate) fn materialize_ref_arg_if_needed(
         &mut self,
         arg_expr: &Expr,
         val: String,
         val_ty: &str,
         param_xiom: &str,
-    ) -> String {
+    ) -> (String, String) {
         let param = param_xiom.trim();
         if !param.starts_with('&') {
-            return val;
+            return (val, val_ty.to_string());
         }
         // Already an address: explicit `&`/`&mut`, or an expression whose
         // XIOM type is a reference/pointer.
         if matches!(arg_expr, Expr::Ref(..) | Expr::MutRef(..)) || self.expr_is_pointer(arg_expr) {
-            return val;
+            return (val, val_ty.to_string());
         }
         // Already the exact pointer representation (e.g. a call that returns
         // `&T` and compiled to `%struct.T*`).
@@ -42,7 +51,7 @@ impl IrEmitter {
         if !pointee.is_empty() {
             if let Ok(pointee_llvm) = self.llvm_type_for(pointee) {
                 if val_ty == format!("{pointee_llvm}*") {
-                    return val;
+                    return (val, val_ty.to_string());
                 }
             }
         }
@@ -55,7 +64,7 @@ impl IrEmitter {
         self.emitln(&format!("  store {val_ty} {val}, {val_ty}* {slot}"));
         let addr = self.fresh_tmp();
         self.emitln(&format!("  {addr} = ptrtoint {val_ty}* {slot} to i64"));
-        addr
+        (addr, LLVM_I64.to_string())
     }
 
     pub(crate) fn coerce_arg_for_param(&mut self, arg_expr: &Expr, pre_val: &str, pre_ty: &str, param_ty: &str) -> String {
@@ -1337,6 +1346,54 @@ impl IrEmitter {
             }
         }
         matches!(e, Expr::Index(..) | Expr::Field(..)) && Self::llvm_scalar_is_int(llvm_ty)
+    }
+
+    /// True when `e` compiles to a FRESHLY ALLOCATED Str temporary that the
+    /// concat lowering may free right after `xiom_str_concat` copies it:
+    /// - a nested `Str + Str` concat (always allocates a new buffer), but NOT
+    ///   pointer arithmetic on a `*UInt8`-style i8* operand;
+    /// - a conversion/join helper that always allocates;
+    /// - a direct `#[owns_str]` call (contract).
+    /// Locals, fields, indices, and literals are borrowed and never freed.
+    pub(crate) fn concat_operand_is_owned_temp(&self, e: &Expr) -> bool {
+        match e {
+            Expr::Paren(inner, _) => self.concat_operand_is_owned_temp(inner),
+            Expr::Binary(left, BinOp::Add, right, _) => {
+                !((self.expr_is_pointer(left) && self.expr_is_integer(right))
+                    || (self.expr_is_pointer(right) && self.expr_is_integer(left)))
+            }
+            Expr::Call(func, _, _) | Expr::GenericCall(func, _, _, _) => match func.as_ref() {
+                Expr::Field(recv, method, _) => {
+                    matches!(
+                        method.name.as_str(),
+                        "int_to_string"
+                            | "float_to_string"
+                            | "bool_to_string"
+                            | "str_concat"
+                            | "str_repeat"
+                            | "str_join"
+                            | "str_replace"
+                            | "str_slice"
+                    ) || (matches!(method.name.as_str(), "to_str" | "to_string")
+                        && self.expr_is_integer(recv))
+                }
+                Expr::Ident(id) => {
+                    matches!(
+                        id.name.as_str(),
+                        "int_to_string"
+                            | "float_to_string"
+                            | "bool_to_string"
+                            | "str_concat"
+                            | "str_repeat"
+                            | "str_join"
+                            | "str_replace"
+                            | "str_slice"
+                    ) || crate::vec_drop::is_fresh_str_call(e, &self.fresh_str_returns)
+                }
+                _ => false,
+            },
+            _ => false,
+        }
     }
 
     /// XIOM-level verdict: is this expression an integer (Int*/UInt*/Char)?

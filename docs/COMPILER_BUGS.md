@@ -1,4 +1,4 @@
-<!-- Copyright (c) 2026 Eleftherios Notas and The XIOM Authors -->
+﻿<!-- Copyright (c) 2026 Eleftherios Notas and The XIOM Authors -->
 <!-- SPDX-License-Identifier: MIT OR Apache-2.0 -->
 
 # XIOM Compiler Bugs -- Log
@@ -25,6 +25,716 @@ A recurring doorbell check (cron, every 3 h while active) pulls the bus and
 processes `to: compiler` items; statuses move open -> acked -> fixed here,
 and the reporter lane verifies at the next release check
 (`relay.py check-new --release compiler-vX.Y.Z --lane compiler` at cut time).
+
+---
+
+## 2026-11-07 -- CODEGEN: nested aggregate field copy-modify-write on a module-global Vec[Struct] emits `extractvalue %struct.Vec 0, 0` (REL-20261106-1840-pulse)
+
+**Symptom (v0.65.6).** PULSE's metrics index-cache shape failed clang:
+
+```
+xiominput.ll:424:38: error: integer constant must have integer type
+  424 |   %tmp173 = extractvalue %struct.Vec 0, 0
+```
+
+The aggregate VALUE operand is missing; `0` is a literal instead of an SSA
+register. Trigger: copy-modify-write of a nested aggregate field through a
+MODULE-GLOBAL `Vec[Struct]`.
+
+**Repro (minimal reconstruction; the PULSE probe
+`tests/probes/probe_nested_struct_copy.xi` needs the uninstalled `xiom.metrics`
+package, so the same shape is kept hermetic here).**
+
+```xiom
+type Histogram   = { count: Int; sum: Int; }
+type MetricEntry = { h: Histogram; }
+type Registry    = { entries: Vec[MetricEntry]; }
+
+var g_regs: Vec[Registry] = Vec[Registry].new();
+
+var reg = Registry { entries: Vec[MetricEntry].new() };
+reg.entries.push(MetricEntry { h: Histogram { count: 5; sum: 15; } });
+g_regs.push(reg);
+
+var h = g_regs[0].entries[idx].h;   // copy a nested aggregate out
+histogram_reset(&mut h);            // modify through &mut
+g_regs[0].entries[idx].h = h;       // write it back
+```
+
+Build: `target\release\xiom.exe build <file> -o <exe>` with
+`XIOM_STDLIB=E:\xiom-lang\stdlib`.
+
+**IR before (invalid).**
+
+```
+%tmp172 = alloca %struct.Vec
+%tmp172_i8 = bitcast %struct.Vec* %tmp172 to i8*
+call void @llvm.memset.p0.i64(i8* %tmp172_i8, i8 0, i64 32, i1 false)
+%tmp173 = extractvalue %struct.Vec 0, 0     ; <-- missing value operand
+%tmp175 = extractvalue %struct.Vec 0, 1
+%tmp177 = extractvalue %struct.Vec 0, 2
+%tmp179 = extractvalue %struct.Vec 0, 3
+```
+
+**IR after (valid).**
+
+```
+%tmp185 = extractvalue %struct.Vec %tmp184, 0
+%tmp186 = getelementptr i8, i8* %tmp182, i64 %tmp185
+...
+%tmp50  = extractvalue %struct.Vec %tmp29, 0
+```
+
+All `extractvalue %struct.Vec` instructions now carry an SSA aggregate.
+
+**Root cause.** `Vec.push`'s struct-element branch
+(`crates/xiom-codegen/src/call.rs:2869`) resolved the receiver element only
+from `local_vec_elem`. A module-global Vec records its declared type in
+`global_xiom_types` (m167), NOT in `local_vec_elem`, so the lookup returned
+`None`; `is_nested_vec` defaulted to `true` and the branch wrote
+`local_vec_elem["g_regs"] = "Vec[Int]"` (the pushed struct argument resolved to
+no Vec element, falling back to `"Int"`).
+
+That bogus shadow then poisoned every later `g_regs[i]`:
+
+1. `resolve_vec_elem_type` (lib.rs:5074) returned `"Vec[Int]"` instead of the
+   declared `Registry`, so the index read took the nested-Vec path in
+   `expr.rs:3862` -> `memcpy 32` then `load %struct.Vec` (`%struct.Vec` has the
+   same 32-byte size as `Registry { entries: Vec[MetricEntry] }`, so the
+   mis-lowering was size-silent).
+2. `g_regs[0].entries` was therefore a field read on `%struct.Vec`, which has
+   no `entries` field; the computed-value field fallback returned
+   `("0", i64)` (expr.rs:3549).
+3. `compile_lvalue`'s `Expr::Index` fallback (emitter.rs:1231-1244) received
+   that `"0"` container and called
+   `emit_vec_store_fields("0", tmp)` (vec_abi.rs:1395) ->
+   `extractvalue %struct.Vec 0, 0`.
+
+V1 control (LOCAL `var regs = Vec[Registry]`) was already green; the defect
+needs the module-global + nested Vec field combination.
+
+**Fix (minimal).** In `call.rs:2885`, consult the global element type when the
+receiver has no local element:
+
+```rust
+let recv_elem = self.local.local_vec_elem.get(&rid.name).cloned()
+    .or_else(|| self.global_vec_elem(&rid.name));
+```
+
+A struct-element module global now resolves to `Registry`, so `is_nested_vec`
+is false and the bogus `"Vec[Int]"` shadow is never written. Nested-Vec
+recording for locals/global `Vec[Vec[T]]` is unchanged.
+
+**Files/lines.**
+`crates/xiom-codegen/src/call.rs:2871-2888` (fix; `Vec.push` struct-element
+recording); `crates/xiom-codegen/src/vec_abi.rs:1395` (invalid emission site);
+`crates/xiom-codegen/src/emitter.rs:1231-1244` (`compile_lvalue` Index
+fallback); `crates/xiom-codegen/src/expr.rs:3862-3948` (element-path
+mis-selection); `crates/xiom-codegen/src/lib.rs:5074-5158`
+(`resolve_vec_elem_type` shadow).
+
+**Regression lock.**
+`tests/regression/rel20261106_nested_vec_struct_copy/main.xi` exercises the
+read (`h.count==5`), `&mut` reset, write-back, re-read, and the surviving
+module-global/nested-Vec headers. E2E run + IR lock:
+`e2e_rel20261106_nested_vec_struct_copy` and
+`e2e_rel20261106_nested_vec_struct_copy_ir` (rejects the literal-operand
+spelling and requires the resolved `MetricEntry`/`Registry` layouts).
+
+**Gates (2026-11-07, HEAD + this fix).**
+`cargo test -p xiom-check` -> **219/219**;
+`cargo test -p xiom --test checker_locks` -> **60/60**;
+`cargo test -p xiom --test checker_spec_gaps` -> **26/26 (0 ignored)**;
+`RUST_MIN_STACK=67108864 cargo test -p xiom-codegen --test
+feature_regression_tests` -> **584/584**;
+curated e2e struct/aggregate/index/vec groups (57 tests incl. m94/m167/m224/
+m226/m227/m302/m319/m322/m346 + REL aggregate locks + the new fixture) ->
+**57/57**; `e2e_m375_json_parse_tree_reclaim`, `e2e_chaos_t3_hot_reload`,
+`e2e_t3_trampoline_floor_budget`, `e2e_rel20261104_1820` -> **3 passed, 1
+ignored**; `tests/soak/run_memory_gates.ps1 -Compiler target/release/xiom.exe
+-Stdlib E:\xiom-lang\stdlib` -> **22/22 GREEN**;
+`cargo build -p xiom --release` OK.
+
+**Residual.** No runtime ownership change, so no ASan run was applicable (the
+memory gates above cover the touched shapes). One over-broad local filter run
+(`struct|aggregate|index|vec`) reported 191/192 because it also selected the
+legacy `e2e_m71_concat_index_elem`, which fails at the **checker** stage
+(`--check`: "cannot add Str and Int" at fixture line 31) before codegen; the
+checker crate is untouched by this fix and that test is absent from the
+maintained CI e2e list. The literal PULSE probe still needs `xiom.metrics`
+installed; its shape is covered hermetically by the new fixture.
+
+---
+
+## 2026-11-06 -- ENVIRONMENT (diagnostics added; no compiler defect found): intermittent Windows compiler exit -1 (REL-20261104-1829-xvector)
+
+**Symptom.** xvector v0.65.6 acceptance reported random, silent compiler
+exits of **-1** on Windows: `src/api/json_fast.xi` and
+`src/query/search_service.xi` (libcheck / `--check`), `probe_manifest_file`
+and `probe_http_service` (builds). Re-running the same build immediately
+passed; no Application Error/WER event; disk, memory, and TEMP were normal;
+v0.65.5 had two similar transients, v0.65.6 more.
+
+**Repro matrix (1 XIOM failure in 627 builds/checks, plus 1 silent
+standalone-clang death in 40 runs; that failure IS the reported class and
+is host-level).** Published asset
+`xiom-0.65.6-windows-x64.zip` sha `a52b8cf3a1dd...` (downloaded from the
+GitHub release) and the local HEAD `target/release/xiom.exe`; env
+`XIOM_HOME=<xvector>\out\xiom-home`,
+`XIOM_STDLIB=<xvector>\out\stdlib-pin-v0656-bundled` (the archive's bundled
+stdlib), `RUST_BACKTRACE=1`, `XIOM_TIMINGS=1`; every child invoked directly
+with stdout/stderr redirected, exact argv, exit, duration, and bytes
+recorded (`%TEMP%\kilo\repro\{pub20,local20,checkA,checkB}\runs.jsonl`).
+
+| compiler | mode | target | pass/fail |
+|---|---|---|---|
+| published v0.65.6 | `-o` | probe_manifest_file | 20/20 |
+| published v0.65.6 | `-o` | probe_http_service | 20/20 |
+| published v0.65.6 | `--emit-ir` | json_fast, search_service | 40/40 |
+| local HEAD | `-o` / `--emit-ir` | same four | 80/80 |
+| published v0.65.6 | `--check` + kill-on-close Job Object, two harnesses concurrently | json_fast 100, search_service 100, probe_manifest_file 50, probe_http_service 50 | 300/300 |
+| published v0.65.6 | faithful libcheck (fresh temp src copy, manifest minus `xiom.vectors`, 49 modules x 3) | all `src/` modules | 147/147 |
+| published v0.65.6 | `--no-cache`, fresh TEMP + `XIOM_OBJ_CACHE_DIR` per batch | probe_manifest_file 5, probe_http_service 5 | 9/10, **1 fail (exit -1)** |
+| published v0.65.6 | `--no-cache`, fresh TEMP + fresh `XIOM_OBJ_CACHE_DIR` per run | probe_http_service 10 | 10/10 |
+| clang 22.1.8 direct (no XIOM) | `clang -c` on the exact retained IR | probe_http_service IR | 29/30, **1 silent child death**, second control 10/10 |
+
+The two concurrent `--check` harnesses shared the lane `XIOM_HOME` cache and
+the `%USERPROFILE%\.xiom\jit\rtobj` object cache on purpose (cross-process
+cache contention). The clean-cache batch is the one that reproduced.
+
+**Reproduced failure (clean-cache batch, 2026-11-06T20:15:52+02:00).**
+`probe_http_nocache` iteration 5, command
+`xiom --no-cache -o ...\out_probe_http_nocache_5.exe
+...\tests\probes\probe_http_service.xi`: **compiler exit -1**, stdout 0 B,
+stderr 5,596 B. The stderr ends at:
+
+```
+[timings] rt-cache HIT e9ff50e7fda13f98
+error: clang failed with exit code 2147483647
+  stderr: warning: overriding the module target triple with x86_64-pc-windows-msvc19.51.36260 [-Woverride-module]
+clang: error: clang frontend command failed with exit code 2147483647 (use -v to see invocation)
+```
+
+and has **no final `error: compilation failed`**, i.e. the compiler was
+terminated after printing the clang failure but before `compile_or_exit`
+could exit 1. The failing compiler's retained IR
+(`out_probe_http_nocache_5.exe.ll`, 6,183,641 bytes) matches the published
+`--emit-ir` output line-for-line (only LF vs CRLF), so it is the exact IR
+clang rejected.
+
+**Why 2147483647: the child was killed with -1, and LLVM hides it.**
+`llvm/lib/Support/Windows/Program.inc`, `sys::Wait`:
+
+```cpp
+DWORD status; GetExitCodeProcess(PI.Process, &status);
+...
+if ((status & 0xBFFF0000U) == 0x80000000U)
+  WaitResult.ReturnCode = static_cast<int>(status);
+else if (status & 0xFF)
+  WaitResult.ReturnCode = status & 0x7FFFFFFF;   // 0xFFFFFFFF -> 2147483647
+else
+  WaitResult.ReturnCode = 1;
+```
+
+A cc1/lld (or clang) child killed with `TerminateProcess(handle, -1)`
+reports `status & 0x7FFFFFFF` = **INT_MAX**, clang prints and propagates it,
+and XIOM reports it verbatim. The compiler was then also terminated with the
+raw `-1` sentinel (stderr stops before `error: compilation failed`), which
+points at the same external process-tree killer rather than a compiler exit
+path.
+
+**Direct-clang control (no XIOM in the loop).** The retained IR was compiled
+with the same `clang -O2 -c` flags 30 times: 29 produced the identical
+2,421,636-byte object; **iteration 22 died silently** — no object, no error
+line, only the target-triple warning. A second 10-run control was 10/10 OK.
+That is a standalone clang invocation being terminated by the host, with no
+XIOM process in the tree, so the trigger is not XIOM codegen or the driver.
+
+**Job/sandbox state.** The current command job reports flags `0x3C00`
+(`BREAKAWAY_OK | SILENT_BREAKAWAY_OK | KILL_ON_JOB_CLOSE |
+DIE_ON_UNHANDLED_EXCEPTION`), no PROCESS/JOB memory limit, no active-process
+limit, and a 2.6 GB peak job footprint. `DIE_ON_UNHANDLED_EXCEPTION`
+suppresses WER for crashes, so the absence of a WER event is not proof of a
+clean exit; however, `-1`/`INT_MAX` are termination sentinels, not exception
+codes. A `KILL_ON_JOB_CLOSE` close was measured separately and yields exit
+code 0, and the xvector wrapper's timeout path yields 124, so neither
+produces `-1`.
+
+**Boundary test: a child tool cannot produce the reported exit.**
+`toolchain::probe_clang` is PATH-first, so a temporary fake
+`clang.exe` (in `%TEMP%\kilo\repro\shim`, not in either repo) answered
+`--version` successfully, logged every argv, and exited `-1` on the real
+compile. Pretending `-1` is the child's `TerminateProcess(0xFFFFFFFF)`:
+
+```
+error: clang failed with exit code -1
+  stderr:
+error: compilation failed
+```
+
+Measured compiler exit: **1**, with the child failure named. The shim also
+recorded the exact invocation (rtcache `clang -c <runtime>.c -o stage/*.o`
+MISS, then the single-invocation fallback). Therefore a clang/lld exit of
+-1 is (a) surfaced, not silent, and (b) **not propagated** as the compiler's
+own exit code. `opt` is absent on this host (`C:\Program Files\LLVM\bin` has
+no `opt.exe`), so the only child tool on Windows is clang (which itself
+spawns `lld-link`).
+
+**Exact-signature reproduction (external kill).** Killing `xiom --check
+src/api/json_fast.xi` externally after 1.2 s with `Stop-Process -Force`
+(equivalently .NET `Process.Kill`, both `TerminateProcess(handle, -1)`)
+reproduced the report exactly, 3/3:
+
+```
+kill#1 exit=-1 stdout=0B stderr=0B
+kill#2 exit=-1 stdout=0B stderr=0B
+kill#3 exit=-1 stdout=0B stderr=0B
+```
+
+That is the reported signature: `--check` prints nothing on success, so an
+external `TerminateProcess(-1)` leaves **exit -1 with empty stdout and
+stderr**. No compiler code path can produce it: `main.rs` exits only
+0/1/2/101, a panic is caught and mapped to 101 (`main.rs:1453-1460`), a
+compile/check failure exits 1, and the *only* `-1` forwarding in the driver
+is the `--run`/cached-run child status (`lib.rs:1030`, `lib.rs:2320`), which
+xvector probe/module builds do not use. A Job-Object `KILL_ON_JOB_CLOSE`
+close was measured separately and terminates the child with exit code **0**,
+not -1; the xvector wrapper's own timeout path reports 124. WER/Application
+Error has no `xiom.exe` entry on 2026-11-04/05.
+
+**Environment checks.** C: 69 GB free, E: 65 GB free now (acceptance had
+C: ~3.3 GB and TEMP on E:); TEMP/TMP now on C:; Defender real-time is on
+(history only has old `target\debug\xiom.exe`/`cargo.exe` entries, none for
+2026-11-04); no locked output (`build.ps1` deletes the target first and a
+locked exe would fail the script, not the compiler); the stale
+`%LOCALAPPDATA%\xiom` v0.65.5 install is bypassed by the archive-relative
+`lib/` stdlib, and the acceptance run anyway used the bundled stdlib.
+
+**Concurrent load on the same host.** During every run above, another lane
+was compiling the editor from
+`E:\xiom-projects\xiom-engine\.kilo\worktrees\editor-waves` with its own
+xiom 0.65.6 and LLVM 21.1.8: `scripts\build_ui_app.ps1 -App editor
+-Release -Backend -NoRun -Toolchain 0.65.6`, a xiom process started 20:43
+that was still compiling Assimp C++ (`FBXDocument.cpp`, ...) at 21:00. The
+machine also had 14 `kilo.exe` and dozens of VS Code/node processes,
+WSL (`vmmemWSL` ~7.9 GB) and Docker running. That lane's scripts were
+inspected: their watches kill **their own PID** only (`Stop-Process -Id
+... -Force` in `run_capped.ps1`/`ci_threads.ps1`, `$proc.Kill()` on their
+own compiler timeout), not ours by name, so they are load context rather
+than a proven direct killer. Note their `Stop-Process -Force` would itself
+produce the same `-1` signature if such a watchdog ever targeted a xiom
+build.
+
+**Classification: external host/agent process-tree termination.** The
+observed chain is: something kills a heavy child (cc1), LLVM masks
+`TerminateProcess(-1)` to `2147483647`, clang surfaces it, XIOM prints the
+clang failure, and the same actor then kills XIOM with `-1` before its final
+`error: compilation failed` line. The direct-clang control reproduces the
+same silent child death with no XIOM process present. Not a compiler code
+defect, not a child-tool bug, and not WER/OOM/disk/cache/lock/Job-close. The
+termination code `-1` is the .NET `Process.Kill`/`Stop-Process -Force`
+sentinel (or an equivalent `TerminateProcess` caller); the actor is not
+identified in the available logs.
+
+**Diagnostics added (no retry masking; success output unchanged).**
+- `crates/xiom/src/lib.rs:433` `run_child_cancellable` now returns
+  `ChildRun { output, cancelled }`; a watchdog kill is named instead of
+  looking like an empty-stderr clang failure (`lib.rs:2351`).
+- `lib.rs:2346` failure block now prints the **exact clang command**, its
+  **cwd**, and the retained `.ll` path; a code of `None` is reported as
+  signal/termination, `-1`/0xFFFFFFFF as the Windows TerminateProcess
+  sentinel, and **2147483647/0x7FFFFFFF as LLVM's mask of a
+  `TerminateProcess(-1)` child** (`lib.rs:2363`, `lib.rs:2380`), never as a
+  clang diagnostic. The staging dir is deleted after the message, or
+  retained with `XIOM_KEEP_LINK_TMP=1` (`lib.rs:2412`).
+- `XIOM_BUILD_TRACE=<file>` (`lib.rs:3311`, invoked from `timing_mark`,
+  `lib.rs:3294`) appends flushed `phase`, `clang-spawn` (with command/cwd),
+  and `clang-exit` (code/cancelled/byte counts) breadcrumbs. If an external
+  killer strikes, the last line identifies the phase reached; this is the
+  diagnostic build the xvector item asked for, with no output when the env
+  var is unset.
+- `lib.rs:3334` `report_termination_note` annotates `-1` child statuses on
+  the `--run`/cached-run paths without changing the forwarded code.
+
+**GATES (HEAD + diagnostics, release compiler).**
+
+```
+cargo build -p xiom --release                               -> ok
+cargo test -p xiom-check                                    -> 219 passed
+cargo test -p xiom --test checker_locks                     -> 60 passed
+cargo test -p xiom --test checker_spec_gaps                 -> 26 passed, 0 ignored
+RUST_MIN_STACK=67108864 \
+  cargo test -p xiom-codegen --test feature_regression_tests -> 584 passed
+cargo test -p xiom --test run_script_cli                    -> 10 passed
+```
+
+Logs: `%TEMP%\kilo\repro\{pub20,local20,checkA,checkB,clean5}.log`,
+`clean5\runs.jsonl` (the failing run's stderr and exact argv),
+`clean5\probe_http_nocache_5\` (retained 6.18 MB IR), `libcheck_repro.log`,
+`stress_pub\stress.jsonl`, `shim\argv*.log`, `trace_shim.txt`,
+`gate2_*.log`.
+
+**Residual.** The identity of the external killer is not in the collected
+logs. Checked: no Defender 1116/1117 detections on 2026-11-06; no
+Application/System/WER event at 20:15:52; no PowerShell 4104 `Stop-Process
+-Name`/`taskkill /IM`/`Process.Kill` other than this session's own test
+commands in the last 24 h; no third-party AV/optimizer (SecurityCenter
+reports only Windows Defender); no job memory/process limit. The machine
+was running many concurrent VS Code/Kilo/node processes plus WSL/Docker at
+the time, so the remaining candidates are the agent/IDE process-tree
+cleanup, an extension-host restart (VS Code was updating), or Defender
+real-time handling — none attributable from user-level logs.
+
+Recommended next acceptance run, in order: (1) set
+`XIOM_BUILD_TRACE=%TEMP%\xiom-build-trace.txt` for the battery; (2) run the
+same cold-cache stress **outside the agent job** on an otherwise idle host
+(no sibling editor build; a detached scheduled task is sufficient) and
+compare; (3) enable Windows 4688/Sysmon event 5 for
+process-create/terminate, and add a one-shot
+`Get-CimInstance Win32_Process` snapshot on failure. A trace that stops at
+a phase with no `clang-exit` line proves the compiler itself was
+terminated; a trace ending at `clang-exit code=Some(-1)` proves clang/lld
+was terminated (the driver now says so), and `code=Some(2147483647)` now
+names LLVM's mask of a `TerminateProcess(-1)` child. `--check` has no child
+at all, so a trace ending at `check`/`borrow` is definitive for the
+compiler process. No commits, pushes, tags, or relay mutations were made;
+all pre-existing uncommitted fixes were preserved.
+
+---
+
+## 2026-11-06 -- FIXED (REL-20261104-1820-playground): nested tuple match on `(Option, Result)` loses bindings
+
+**Symptom.** Matching a tuple whose elements are containers dropped every
+nested binding. On the v0.65.6 release compiler the exact L3-20 reduction
+
+```
+use xiom.io;
+
+fn main() {
+  let data = (Some(5), Ok("ready"));
+  match data {
+    (Some(n), Ok(msg)) => io.println("Value: " + to_string(n) + ", Message: " + msg),
+    _ => io.println("other"),
+  };
+}
+```
+
+printed `Value: 0, Message: ` (rc 0) instead of `Value: 5, Message: ready`.
+A four-arm form (`(Some, Ok)`, `(Some, Err)`, `(None, Ok)`, `(None, Err)`)
+selected the FIRST arm unconditionally and printed 0 / empty; it also appears
+on v0.65.5, so the shape predates v0.65.6.
+
+**Reproduction.**
+
+```
+$env:XIOM_STDLIB="E:\xiom-lang\stdlib"
+target\release\xiom.exe --no-cache -o probe.exe probe.xi
+.\probe.exe
+```
+
+Pre-fix: `Value: 0, Message: `. Post-fix: `Value: 5, Message: ready`.
+
+**Root cause (codegen, not the checker).**
+- `crates/xiom-codegen/src/stmt.rs` `Pattern::Tuple` check block (old
+  `stmt.rs:2888`) emitted an unconditional `br arm_label`: nested
+  `Some`/`Ok`/`None`/`Err` discriminants were never compared, so the first
+  tuple arm won.
+- The arm-body tuple destructure (old `stmt.rs:3349`) walked the tuple fields
+  but bound only `if let Pattern::Ident(elem)`; `Some(a)`/`Ok(b)`/`Err(e)`
+  elements were skipped, leaving checker-bound names with no codegen local.
+  The arm then read the zero-default (`to_string(0)` / `inttoptr i64 0`).
+- The checker was already correct: `add_pattern_bindings`'s tuple branch
+  (`crates/xiom-check/src/lib.rs:1810`) splits the tuple-typed scrutinee via
+  `parse_tuple_elem_types` and recurses into each element; `Some`/`Ok`/`Err`
+  then use the element payload type (`lib.rs:1749-1790`). The gaps agent's
+  duplicate/or-set scan (`lib.rs:1837`) is a separate diagnostic pass and did
+  not compound this bug; `checker_spec_gaps` or-pattern tests stay green.
+
+**Fix.** Codegen now treats nested tuple patterns recursively:
+- `stmt.rs:4302` `track_tuple_binding` records per-element container spellings
+  (`Option[Int]`, `Result[Int, Str]`) for a `let`/`var` bound to a tuple
+  literal (`context.rs:811` `local_tuple_elem_types`, cleared per body at
+  `decl.rs:1578`). `stmt.rs:4319` resolves them (or the tuple expression
+  itself) at match time (`stmt.rs:2352`).
+- `stmt.rs:4419` `emit_nested_pattern_check` walks tuple fields and
+  Option/Result payloads, emitting real discriminant/payload checks (Some/Ok
+  = tag 1, None/Err = tag 0; payload literals compared).
+- `stmt.rs:4727` `bind_nested_pattern_value` recursively binds payload
+  identifiers with their real types (including `Str` `inttoptr` and float
+  bitcasts) from the tuple alloca (`stmt.rs:3171` guard pre-bind and
+  `stmt.rs:3368` arm body).
+- `stmt.rs:2895` replaces the tuple check block's unconditional branch.
+
+**Regression lock.**
+- Fixture: `tests/regression/rel20261104_1820_tuple_option_result/main.xi` --
+  `(Option[Int], Result[Int, Str])` function parameters covering
+  `(Some, Ok)`, `(None, Err)`, `(Some, Err)`, `(None, Ok)`, a wildcard arm,
+  direct value assertions (`a != 42`, `e != "boom"`, ...), a plain
+  `(x, y)` tuple control and `let (p, q) = (33, 44)`.
+- `crates/xiom-codegen/tests/e2e_tests.rs:12241`
+  `e2e_rel20261104_1820_tuple_option_result` (compile + run + stdout checks).
+
+**GATES (HEAD + this fix, release compiler, `XIOM_STDLIB=E:\xiom-lang\stdlib`).**
+
+```
+cargo build -p xiom --release                              -> ok
+cargo test -p xiom-check                                   -> 219 passed
+cargo test -p xiom --test checker_locks                    -> 60 passed
+cargo test -p xiom --test checker_spec_gaps                -> 26 passed, 0 ignored
+RUST_MIN_STACK=67108864 cargo test -p xiom-codegen \
+  --test feature_regression_tests                           -> 584 passed
+cargo test -p xiom-codegen --test e2e_tests pattern        -> 8 passed
+cargo test -p xiom-codegen --test e2e_tests match          -> 38 passed
+cargo test -p xiom-codegen --test e2e_tests \
+  e2e_rel20261104_1820_tuple_option_result                 -> 1 passed
+```
+
+**Selfhost parity (IR-changing fix, not mirrored).** The change is Rust
+codegen lowering, not shared checker semantics, so the selfhost worktree was
+not modified. The Phase 6 differential gate in
+`.kilo/worktrees/selfhost-phase-4-codegen` was run with
+`XIOM_SELFHOST_DIFF_TIER=3`:
+`diff_corpus` -> 1 passed; **T3 19/19** scalar byte-exact, **T6 37/64**
+Phase-6 ported, T1 83/83 green. No corpus file contains a nested
+`(Some(a), Ok(b))` tuple match (the only `(Some, Ok)` tuple source,
+`tests/regression/m21_destructure_008.xi`, is not in the corpus and matches
+`t.0`, not the tuple), so the gate has no drift from this change. **Port
+needed:** `selfhost/src/codegen.xi` tuple-pattern lowering must mirror the
+recursive check/bind (Phase 6 item).
+
+**Residual.** Nested `Variant`/`Struct`/`Or` patterns *inside* a tuple keep
+the historical permissive lowering (they are outside this fix's scope), and a
+function-returned tuple whose erased `Tuple__...` name carries no element
+container args binds scalar payloads as i64 unless a typed local/tuple
+expression supplies the args. Top-level or-pattern alternatives that are
+tuples still use the existing permissive check; all existing or-pattern and
+duplicate-binding locks remain green. No commits, pushes, tags, or relay
+mutations were made.
+
+---
+
+## 2026-11-06 -- FIXED (REL-20261010-1553-playground-2): by-ref Str comparator through a fn-typed parameter (value arguments)
+
+**Symptom.** The v0.65.6 1553 set (l634 pre, annotated closures, pipe `&T`,
+m308 named/`*a` comparators) is green for the Int form, but the **Str** form of
+the L6-34 VALUE-argument shape still fails LLVM IR:
+
+```
+fn find_min_vec[T](items: Vec[T], less: fn(&T, &T) -> Bool) -> Int
+  if less(items.get(i).unwrap(), items.get(best).unwrap()) { ... }
+
+fn less_str(a: &Str, b: &Str) -> Bool { return a < b; }
+let idx = find_min_vec[Str](vs, less_str);      // clang rejects the IR
+```
+
+The playground item stays acked; this is the last red shape for the item.
+
+**Reproduction (reconstructed; no playground checkout exists under
+`E:\\xiom-projects`).** The minimal shape comes from the item and the existing
+`tests/fixtures/rel1553_fnptr/l634_pre.xi`, specialized to `Str`:
+
+```
+$env:XIOM_STDLIB="E:\xiom-lang\stdlib"
+target\release\xiom.exe -o probe.exe probe.xi
+```
+
+Pre-fix: `error: clang failed with exit code 1` /
+`xiominput.ll:...: error: '%tmp65' defined with type 'i64' but expected 'ptr'`.
+Post-fix: compiles, prints `l634 str ok`, rc 0.
+
+**IR evidence.** In `@find_min_vec_Str` the two value args were materialized
+into `Str` slots and `ptrtoint`ed to `i64` (correct uniform ABI), but the
+indirect call signature/args kept the ORIGINAL `i8*` value type:
+
+```
+; BEFORE (bad)
+%tmp65  = ptrtoint i8** %tmp64 to i64
+%tmp111 = ptrtoint i8** %tmp110 to i64
+%tmp115 = inttoptr i64 %tmp114 to i64 (i64, i8*, i8*)*
+%tmp116 = call i64 %tmp115(i64 %tmp112, i8* %tmp65, i8* %tmp111)
+
+; AFTER (fixed)
+%tmp115 = inttoptr i64 %tmp114 to i64 (i64, i64, i64)*
+%tmp116 = call i64 %tmp115(i64 %tmp112, i64 %tmp65, i64 %tmp111)
+```
+
+The named fn is wrapped by `define i64 @__fnwrap_0(i64 %__env, i64 %a0, i64
+%a1)`, which inttoptrs `a0`/`a1` to the callee's `i8**` params, so the uniform
+i64 closure ABI is correct; only the emitted signature disagreed with the
+already-i64 value.
+
+**Root cause.** `IrEmitter::materialize_ref_arg_if_needed`
+(`crates/xiom-codegen/src/coerce.rs:28`) returned only the rewritten VALUE.
+Its caller (`crates/xiom-codegen/src/call.rs:1324`, M20-A1 closure/fn-param
+call) kept the pre-materialization `ty` in `compiled_args`; the indirect call
+then built both `fn_ptr_ty` and the argument list from that stale type. For a
+value auto-referenced into a slot the value is `ptrtoint ... to i64`, but the
+recorded type stayed the pointee's LLVM type (`i8*` for `Str`, `%struct.T*` for
+other pointer-shaped values). The Int form never surfaced the mismatch because
+its value type was already `i64`.
+
+**Fix (targeted; ABI unchanged).**
+- `coerce.rs:28` returns `(String, String)` instead of `String`. The
+  materializing branch returns `(addr, "i64")` (`coerce.rs:67`); the three
+  pass-through branches (non-`&` param, explicit borrow / reference-valued
+  arg, exact pointee pointer) return the original `(val, ty)` unchanged, so
+  m308's explicit `&arr[i]` and `&T` returns keep their semantics.
+- `call.rs:1324-1333` consumes the post-materialization pair, so the emitted
+  fn-pointer type and arguments agree. The named-fn thunk
+  (`__fnwrap_N(i64, i64, i64)`) and the closure ENV ABI are untouched.
+
+**Regression lock.**
+- Fixture: `tests/regression/m308_ref_str_cmp_value_args/main.xi` -- generic
+  by-value `Vec` + `Vec.get().unwrap()` values (named `fn(&Str, &Str)`), a
+  non-generic by-ref `&Vec[Str]` form, an unannotated closure literal
+  (`|a, b| a < b`), and an Int control.
+- `crates/xiom-codegen/tests/e2e_tests.rs:8013`
+  `e2e_m308_ref_str_cmp_value_args` (runs, expects rc 0).
+- `crates/xiom-codegen/tests/e2e_tests.rs:8024`
+  `e2e_m308_ref_str_cmp_value_args_ir` (asserts `to i64 (i64, i64, i64)*` and
+  no `to i64 (i64, i8*` in `@find_min_vec_Str`).
+
+**GATES (HEAD + this fix, release compiler).**
+
+```
+cargo build -p xiom --release                              -> ok
+cargo test -p xiom-check                                   -> 219 passed
+cargo test -p xiom --test checker_locks                    -> 60 passed
+cargo test -p xiom --test checker_spec_gaps                -> 26 passed, 0 ignored
+RUST_MIN_STACK=67108864 \
+  cargo test -p xiom-codegen --test feature_regression_tests -- --test-threads=1
+                                                           -> 584 passed
+cargo test -p xiom-codegen --test e2e_tests m308_ref_str_cmp -> 4 passed
+  (e2e_m308_ref_str_cmp, _ir, _value_args, _value_args_ir)
+cargo test -p xiom-codegen --test e2e_tests fn             -> 32 passed
+cargo test -p xiom-codegen --test e2e_tests closure        -> 24 passed
+cargo test -p xiom-codegen --test e2e_tests callback       -> 2 passed
+cargo test -p xiom-codegen --test e2e_tests m264           -> 1 passed
+cargo test -p xiom-codegen --test e2e_tests m361           -> 6 passed
+cargo test -p xiom --test ffi_fnptr_abi (m263)             -> 2 passed
+tests/fixtures/rel1553_fnptr/{l634_pre,annotated_closure,closure_predicate}
+                                                           -> all rc 0
+```
+
+All commands ran with `XIOM_STDLIB=E:\xiom-lang\stdlib` and
+`XIOM_TEST_COMPILER=E:\xiom-lang\xiom\target\release\xiom.exe`. The
+2026-11-06 P0 Str-lifetime fix, mutability/init-once, seven SPEC gaps,
+t3/1704/2117, lint and ASan work remain uncommitted and untouched.
+
+**Residual.** None observed for this shape. The original playground probe was
+not found in `E:\xiom-projects`; the repro was reconstructed from the item and
+the existing `l634_pre` fixture (Str specialization). No commits, pushes, tags,
+or relay mutations were made.
+
+---
+
+## 2026-11-06 -- FIXED (P0): returned Str freed at scope exit (stdlib http_build_request, orbitdb schema_row)
+
+**Symptom.** On v0.65.6 `stdlib/tests/smoke/smoke_net_http.xi` returns
+`Ok(r)` with `r.len()==6` and stale/garbage bytes (8/12 fresh processes);
+orbitdb `scripts/fuzz.ps1` seed 1000 reports `schema_row rc=19` and exits 189.
+Both are use-after-free, not escaping: the returned `Str` buffer is freed by
+the callee's scope-exit drop AFTER it was stored into the returned aggregate.
+
+**Reproduction (local HEAD, no published-asset download needed).** Release
+compiler built from HEAD (`847d5d5a1` release set, `v0.65.6`), env
+`XIOM_COMPILER=E:\xiom-lang\xiom\target\release\xiom.exe`,
+`XIOM_STDLIB=E:\xiom-lang\stdlib`, `ORBITDB_FUZZ_SEEDS=1`:
+
+```
+orbitdb   scripts\fuzz.ps1 -TimeoutSec 600 -> schema_row FAILED seed=1000 rc=19, exit 189
+stdlib    smoke_net_http x12               -> 8 failed (http-build-line, exit 13)
+```
+
+**IR evidence (pre-fix).** `--emit-ir` on smoke_net_http showed, at the end
+of the `Ok(p)` match arm after storing `%tmp256` (request) into `%struct.Result`:
+
+```
+%tmp263 = load i1, i1* %tmp56          ; str_rebind owned flag
+br i1 %tmp263, label %vecdrop_do57, ...
+vecdrop_do57: ... call void @xiom_guard_free(i8* %tmp264)
+```
+
+`%tmp264` is the same buffer just stored into the returned Result. A minimal
+`enum MaybeText { Empty; Text(Str) }` probe with
+`return MaybeText.Text(s)` showed the identical exit free after the variant
+construction.
+
+**A/B / bisect (code archaeology).**
+- `v0.65.4` (`git show v0.65.4:crates/xiom-codegen/src/vec_drop.rs`,
+  `register_str_drop`): `if self.fctx.str_rebind_safe.contains(name) { return; }`
+  -- NO exit drop for any rebind local. A returned-through-a-match arm leaked;
+  it could not UAF. This matches "v0.65.4 clean".
+- `f537b1b14` ("reclaim reader-arg, Str copy-out, and rebind buffers (m375)",
+  first tag `v0.65.5`) added `str_rebind_exit = str_rebind - returned` and a
+  guarded `VecDrop::Ptr` exit drop for non-returned rebind locals. v0.65.6
+  (`847d5d5a1`) ships this plus the widened fresh-Str provenance
+  (`is_fresh_str_init` -> `is_fresh_str_value`, `#[owns_str]`;
+  `git log -S owns_str` -> `847d5d5a1`). The exit drop is only correct while
+  `state.returned` is complete.
+
+**Root cause.** `state.returned` was filled by `mark_returned_roots`, called
+only for a function-body tail and an explicit `return`. It was NOT propagated
+into block-valued expressions in a return/transfer context, so the tail of a
+`match`/`if`/`{}`/trusted `unsafe` arm (`Ok(request)`) was scanned as an
+ordinary escape. Because `state.in_return` was inherited as true, the local
+was also not added to `str_alias_escaped`, so it stayed in `str_rebind` and,
+missing from `returned`, landed in `str_rebind_exit`. `mark_returned_roots`
+also did not recognize enum-variant constructors (`TValue.VText(s)` is an
+`Expr::Call` with a `Field` callee), so `s` was freed after being moved into
+the returned variant (orbitdb text payload).
+
+**Fix (provenance-strict; false positives are leak-only, never a free).**
+- `crates/xiom-codegen/src/vec_drop.rs:1344` -- compute
+  `tail_is_return = state.in_return` in `scan_expr` and pass it to the block
+  tails of `Expr::BlockExpr`, `Expr::If`, `Expr::Match` (both `MatchBody::Block`
+  and `MatchBody::Expr`), and the trusted `Expr::Unsafe` body. A returned
+  branch tail now calls `mark_returned_roots`, matching a function-body tail.
+- `crates/xiom-codegen/src/vec_drop.rs:2249` -- `mark_returned_roots` recurses
+  into the by-value arguments of an enum-variant constructor
+  (`Recv.Variant(args)` when `Recv` names a registered enum, or a bare variant
+  name). Enum metadata is built once in `build_drop_caches`
+  (`vec_drop.rs:2715-2726`) from `types.enum_variants` and stored as
+  `IrEmitter::{enum_ctors,bare_enum_ctors}` (`crates/xiom-codegen/src/lib.rs:119-121`).
+
+**Regression locks.**
+- `crates/xiom-codegen/tests/feature_regression_tests.rs:8311`
+  `rel20261104_returned_str_through_match_arm_is_not_freed` (asserts no
+  `vecdrop_do` after `Ok(request)`).
+- `crates/xiom-codegen/tests/feature_regression_tests.rs:8347`
+  `rel20261104_returned_str_through_enum_variant_is_not_freed` (asserts no
+  `vecdrop_do` after `MaybeText.Text(s)`).
+- `crates/xiom/tests/run_script_cli.rs:501`
+  `rel20261104_str_rebind_return_chain_repeated_processes` compiles
+  `tests/regression/rel20261104_str_rebind_chain/main.xi` once, then runs the
+  produced binary in 20 fresh processes; the fixture rebuilds the
+  `request = request + ...` chain, returns it through BOTH a match-arm `Ok`
+  and an enum variant, and churns 128 bytes before reading so a freed buffer
+  is overwritten.
+
+**GATES (HEAD after the fix).**
+
+```
+orbitdb scripts/fuzz.ps1 seed 1000            -> rc=0 (2/2)
+stdlib smoke_net_http fresh processes         -> 12/12 pass
+cargo test -p xiom-check                      -> 219 passed
+cargo test -p xiom --test checker_locks       -> 60 passed
+cargo test -p xiom --test checker_spec_gaps   -> 26 passed, 0 ignored
+  ... -- --ignored                            -> 0 tests
+RUST_MIN_STACK=67108864 cargo test -p xiom-codegen --test feature_regression_tests
+                                              -> 584 passed (582 baseline + 2 new)
+tests/soak/run_memory_gates.ps1               -> 22/22 GREEN
+  (incl. str_rebind_growth, vec_rebind_growth, aggregate_field_overwrite)
+cargo test ... e2e_t3_trampoline_floor_budget -> 1 passed
+cargo test ... e2e_confined_repeat_fault_contained -> 1 passed
+p_json_1704_obj (1k/10k/20k, MaxMB=512)       -> 4.7 / 5.0 / 5.5 MB, rc 0
+cargo build -p xiom --release                 -> ok
+```
+
+No commits, pushes, tags, or relay mutations were made. No stdlib source
+change was needed. Residual: none observed; the enum-constructor
+over-approximation can only disable a drop (leak), never free a borrowed
+buffer.
 
 ---
 
@@ -22384,3 +23094,119 @@ var x: Float64 = 2 + 2.5 -> compiles and prints "4.5"
 
 No `E:\xiom-lang\stdlib` changes were needed; no relay mutations were made.
 The selfhost worktree was not touched.
+
+---
+
+## 2026-11-07 -- FIXED (C-PULSE): Option[named struct] aggregate-return drop + Str temp residual
+
+REPRO: `tests/fixtures/c_pulse_request_cycle/main.xi` (100k variant kept in
+`%TEMP%\kilo\pulse100k`), compiled with `target/release/xiom.exe` and
+`XIOM_STDLIB=E:\xiom-lang\stdlib`. The loop builds a 64 KiB request buffer,
+calls `server_parse_request(&buf)`, then `server_build_response(200, "hello")`.
+Before this slice (after the loop-body Vec/Str drop-glue half): 10k peak
+4.96 MB, 100k peak **98.37 MB** -> ~1.04 KB/iter. The parse-only control was
+flat (100k 4.66 MB) and a build-response-only control leaked 68.17 MB/100k, so
+the residual had TWO independent causes.
+
+ROOT CAUSE (IR, `--emit-ir`):
+1. `%struct.Option__ServerRequest = { i64, %struct.ServerRequest }` was stored
+   at `let r = server_parse_request(&buf)`, but no exit drop checked tag 1 or
+   walked the `Some` payload; `ServerRequest { method, target, version: Str;
+   headers: Vec[(Str,Str)]; ... }` was never freed.
+2. `server_build_response`'s `var resp` rebind chain was treated as an alias
+   because `resp = resp + body` has no literal/call operand; the replacement
+   buffer was never freed, and multi-term concats / `to_string`'s per-digit
+   `str_slice` temporaries leaked as well.
+
+FIX (compiler):
+* `context.rs` -- `VecDrop::StructPayload` (415) + `FunctionContext::struct_payload_tree`
+  (585); `flag()` arm (441).
+* `fresh_return.rs` -- `collect_fresh_struct_payload_returns` (168) /
+  `fn_returns_payload_named_struct` (203). Same-leaf rule: every fn for the
+  leaf must carry ONE contract (`#[owns_return]` -> free_strings=true, R3;
+  `#[consumes_agg]` -> false, R4) and return the same `Option`/`Result` named
+  struct. Enum payloads are excluded (the EnumTree slice owns them).
+* `vec_drop.rs` -- scan/prepass: `fresh_struct_payload` (167),
+  `struct_payload_decl` (179), `struct_payload` (305), prepass param (336),
+  ownership filter (571), `fresh_struct_payload_call` (near 700). Registration
+  `register_struct_payload_drop` (3752): only a DIRECT call binding with a
+  CONCRETE `%struct.Option__*`/`Result__*`, a `discriminant` + inline named
+  `value` struct, and a non-enum/non-container payload. It records the exact
+  payload LLVM key, hoists a ptr slot + armed flag, and emits a scope-exit
+  `VecDrop::StructPayload` (disc==1 -> payload GEP -> helper; None/Err is a
+  no-op).
+* `vec_drop.rs` -- module-end `emit_struct_payload_drop_helpers` (3895),
+  `build_struct_payload_drop_helper` (3927), `emit_type_value_drop` (3968),
+  `emit_vec_value_drop` / `emit_map_value_drop`, `emit_str_free_value_inline`.
+  The helper recursively frees Str (R3 only), Vec data + proven-owned element
+  payloads, Map key/value buffers, and nested struct/tuple fields; empty Str
+  is skipped (shared `""` literal). A self-recursive struct is bounded by the
+  data, and unknown/enum/nested-Option layouts stay leak-only.
+* `stmt.rs` -- `register_struct_payload_drop` at the `let` (951) and `var`
+  (1458) sites, next to the EnumTree registration.
+* `lib.rs` -- emitter emits the struct helpers after the enum helpers.
+* `expr.rs`/`coerce.rs` -- the separate Str residual: `compile_binop_fold`
+  now tracks accumulator ownership (`l_owned`/`acc_owned`, 156/1597) and the
+  normal concat path frees fresh operand temps (`concat_operand_is_owned_temp`,
+  coerce.rs:1358): nested Str concat, `int/float/bool_to_string`, `str_concat/
+  repeat/join/replace/slice`, and `to_str` on an integer. Locals, fields,
+  indices, literals and pointer arithmetic are never freed.
+* `vec_drop.rs` -- `str_typed` + `is_fresh_str_value_for_scan` (702) /
+  `str_operand_scan` (675): a `Str + Str` concat of two KNOWN Str values is a
+  fresh buffer even when neither operand is a literal (fixes `resp + body` and
+  keeps the rebind free armed). `decl.rs`/`lib.rs` pass Str params; the block
+  fn passes an empty set.
+
+STDLIB (`E:\xiom-lang\stdlib`, uncommitted):
+* `xiom/net/server.xi:75` `#[owns_return]` on `server_parse_request` (R3; the
+  returned tree is fresh and main-heap even from a confined caller).
+* `xiom/net/server.xi:187` `#[owns_str]` on `server_build_status_line` (it
+  returns a fresh concat, so the initial `resp` buffer is owned/freed).
+* `xiom/convert/convert.xi:82` `to_string` uses `result + str_slice(...)`
+  instead of `string.str_concat(...)`, so the per-digit slice is a freed temp
+  and the concat is one allocation instead of two.
+
+BEFORE -> AFTER (release, `enumerate`-peak, same host):
+```
+C-PULSE full   10k 4.96 MB -> 4.18 MB
+               100k 98.37 MB -> 4.18 MB  (~1.04 KB/iter -> ~0.0)
+               200k -        -> 4.18 MB
+parse-only     100k 4.66 MB -> 4.66 MB (unchanged/flat)
+build-only     100k 68.17 MB -> 4.07 MB (200k)
+```
+ASan (Windows clang 22.1.8, `--sanitize=address --no-contracts
+--overflow-checks --release`, `ASAN_OPTIONS=detect_leaks=0`): request cycle
+10k AND 100k rc 0, empty sanitizer stderr; `m368_vec_drop_reclaim`,
+`nested_struct_drops`, `aggregate_arm_drop`, `str_if_arm_drop`,
+`container_elem_owned_drop`, `m375_json_parse_tree_reclaim`, and
+`m2117_aggregate_overwrite_guards` rc 0, no use-after-free/invalid-free.
+
+GATES (2026-11-07):
+```
+cargo test -p xiom-check                              -> 219 passed
+cargo test -p xiom --test checker_locks               -> 60 passed
+cargo test -p xiom --test checker_spec_gaps           -> 26 passed, 0 failed
+RUST_MIN_STACK=67108864 cargo test -p xiom-codegen \
+  --test feature_regression_tests                     -> 584 passed
+tests/soak/run_memory_gates.ps1                       -> 22/22 GREEN
+p_json_1704_obj (1k/10k/20k, MaxMB=512)               -> 4.8 / 5.0 / 5.5 MB, rc 0
+e2e m368 / m375 / t3                                  -> 1 / 2 / 5 passed
+```
+SELFHOST (Phase 6 worktree, uncommitted, not touched by this slice):
+`diff_ast` 83/83 (1 test), `diff_check` 83 files + 101 manifest cases,
+`diff_corpus` tier-3 phase-5 **19/19** + phase-6 **37/64** (37 ported), full
+tier-3 suite **8 passed / 0 failed**, `diff_ir_headers` 83 files/8586 lines.
+PORT STATUS: the new aggregate-return drop shape is **NOT yet mirrored** in
+`selfhost/src/codegen.xi`; that Phase 6 port has no Vec/Str drop-glue
+subsystem at all (no `xiom_guard_free` emission / drop registration), so there
+is nothing to attach the Some/Ok payload drop to. The corpus contains no
+contracted `Option`/`Result[named struct]` return, so the parity gates stay
+green. The Str temp/rebind shape is likewise unported; a faithful mirror
+requires porting the drop subsystem first, and must be validated against a
+reference compiler that emits it.
+
+PRESERVED (untouched): Str-lifetime fix, 1553, 1820, mutability/init-once,
+seven SPEC gaps, t3/1704/2117, lint, ASan work, Phase B THP
+(`stdlib/runtime/xiom_runtime.c`), the loop-body drop-glue edits, and the
+selfhost branch's uncommitted work. No commits, tags, pushes or relay
+mutations were made.

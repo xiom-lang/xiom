@@ -55,6 +55,7 @@ pub(crate) fn collect_fresh_ownership(
     HashSet<String>,
     HashSet<String>,
     HashMap<String, String>,
+    HashMap<String, (String, bool)>,
     HashMap<String, String>,
     HashSet<String>,
     HashSet<String>,
@@ -63,10 +64,11 @@ pub(crate) fn collect_fresh_ownership(
     let payload = collect_fresh_payload_returns(program, &vec);
     let aggregate = collect_fresh_aggregate_returns(program);
     let enum_tree = collect_fresh_enum_tree_returns(program);
+    let struct_payload = collect_fresh_struct_payload_returns(program);
     let agg_returns = collect_consumes_agg_returns(program);
     let agg_callees = collect_consumes_agg_callees(program);
     let str_returns = collect_fresh_str_returns(program);
-    (vec, payload, aggregate, enum_tree, agg_returns, agg_callees, str_returns)
+    (vec, payload, aggregate, enum_tree, struct_payload, agg_returns, agg_callees, str_returns)
 }
 
 /// `#[owns_str]` contract (R2): the function returns a freshly allocated `Str`
@@ -151,6 +153,74 @@ fn collect_fresh_enum_tree_returns(program: &Program) -> HashMap<String, String>
             Some((leaf, names.into_iter().next().unwrap()))
         })
         .collect()
+}
+
+/// `#[owns_return]` / `#[consumes_agg]` Result/Option<named struct> returns.
+/// The Some/Ok payload is a freshly built struct whose owned fields (Vec/Str/
+/// Map) follow the contract provenance. A direct `let r = call` binding
+/// reclaims the payload at scope exit; match arms / literals / non-contracted
+/// callees stay leak-only. `free_strings` is true for `#[owns_return]` (R3:
+/// the returned tree owns its Str leaves) and false for `#[consumes_agg]`
+/// (R4: containers transferred, Str leaves borrowed). All same-leaf functions
+/// must carry the same contract AND name the same struct, or the leaf is
+/// rejected (fresh_return's conservative same-leaf rule). Enum payload types
+/// are excluded: `collect_fresh_enum_tree_returns` owns that provenance.
+fn collect_fresh_struct_payload_returns(
+    program: &Program,
+) -> HashMap<String, (String, bool)> {
+    let mut enum_leaves: HashSet<String> = HashSet::new();
+    collect_enum_leaves(&program.items, &mut enum_leaves);
+    let mut groups: HashMap<String, Vec<&FnDecl>> = HashMap::new();
+    collect_fn_groups(&program.items, &mut groups);
+    groups
+        .into_iter()
+        .filter_map(|(leaf, fns)| {
+            if fns.is_empty() {
+                return None;
+            }
+            // One contract per leaf; a mixed group is unproven.
+            let owns = fns.iter().all(|fd| fn_has_owns_return(fd));
+            let consumes = fns.iter().all(|fd| fn_has_consumes_agg(fd));
+            let free_strings = if owns && !consumes {
+                true
+            } else if consumes && !owns {
+                false
+            } else {
+                return None;
+            };
+            let mut names: HashSet<String> = HashSet::new();
+            for fd in &fns {
+                names.insert(fn_returns_payload_named_struct(fd, &enum_leaves)?);
+            }
+            if names.len() != 1 {
+                return None;
+            }
+            Some((leaf, (names.into_iter().next().unwrap(), free_strings)))
+        })
+        .collect()
+}
+
+fn fn_returns_payload_named_struct(
+    fd: &FnDecl,
+    enum_leaves: &HashSet<String>,
+) -> Option<String> {
+    let ok = match fd.return_type.as_ref() {
+        Some(Type::Result(ok, _)) | Some(Type::Option(ok)) => ok.as_ref(),
+        _ => return None,
+    };
+    let Type::Named(id, args) = ok else { return None };
+    if !args.is_empty() {
+        return None;
+    }
+    let leaf = id.name.rsplit('.').next().unwrap_or(&id.name);
+    if enum_leaves.contains(&id.name) || enum_leaves.contains(leaf) {
+        return None;
+    }
+    if is_named_struct_type(id) {
+        Some(id.name.clone())
+    } else {
+        None
+    }
 }
 
 fn collect_enum_leaves(items: &[TopDecl], out: &mut HashSet<String>) {

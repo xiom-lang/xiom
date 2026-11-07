@@ -1575,6 +1575,7 @@ impl IrEmitter {
         self.local.local_vec_handle.clear();
         self.local.signed_locals.clear();
         self.local.local_xiom_types.clear();
+        self.local.local_tuple_elem_types.clear();
         self.local.reg_signed.clear();
         self.local.ref_locals.clear();
         // round-15 (array.first off-by-one): array-binding metadata must not
@@ -1619,7 +1620,17 @@ impl IrEmitter {
                 })
                 .map(|p| p.name.name.clone())
                 .collect();
-            self.prepass_owned_vec_locals(body, trust_unsafe, &by_value_vec_params);
+            // Str-typed params: the Str rebind analysis recognizes a
+            // `Str + Str` concat (both operands known Str) as a fresh buffer.
+            let str_params: HashSet<String> = fd
+                .params
+                .iter()
+                .filter(|p| {
+                    matches!(&p.ty, Type::Named(id, _) if id.name == "Str" || id.name.ends_with(".Str"))
+                })
+                .map(|p| p.name.name.clone())
+                .collect();
+            self.prepass_owned_vec_locals(body, trust_unsafe, &by_value_vec_params, &str_params);
         }
 
         let ret_llvm = fd.return_type.as_ref()

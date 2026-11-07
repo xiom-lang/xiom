@@ -11,6 +11,18 @@ name: XIOM Release
 # are public now, so the default github.token can read the stdlib; the
 # XIOM_CROSS_REPO_TOKEN fallback remains for orgs that keep it private.
 #
+# Stdlib identity (REL-20261106-1817): STDLIB_VERSION names a tag, which can
+# move, so every platform archive ships lib/STDLIB_COMMIT with the exact
+# 40-char commit (first line) plus a one-line record (tag, commit, package
+# version). scripts/verify_stdlib_pin.sh requires the pin to be an ANNOTATED
+# tag, fails when the checkout HEAD differs from the tag's annotated commit,
+# and fails when package.xi disagrees with the tag's version suffix. The
+# release job re-verifies the pin, requires lib/STDLIB_COMMIT inside every
+# archive, publishes a top-level STDLIB_COMMIT asset (also in SHA256SUMS),
+# and sends stdlib_commit in the docs dispatch payload. The universal VSIX
+# bundles no platform binaries, so it carries no stdlib; the release-level
+# STDLIB_COMMIT covers it and the wasm assets.
+#
 # Release guard (CRB-4): a `guard` job runs before every build. On a tag
 # push it FAILS when the tag does not equal the workspace crate version
 # (Cargo.toml [workspace.package] version -- `xiom --version` reports that
@@ -218,6 +230,16 @@ jobs:
           else
             git clone --depth 1 --branch "$STDLIB_REF" https://github.com/xiom-lang/stdlib.git stdlib
           fi
+
+      - name: Resolve and verify stdlib commit (REL-20261106-1817)
+        id: stdlib
+        shell: bash
+        run: |
+          set -euo pipefail
+          ref="$(tr -d '\r\n ' < STDLIB_VERSION)"
+          bash scripts/verify_stdlib_pin.sh --stdlib stdlib --ref "$ref" --out STDLIB_COMMIT
+          echo "commit=$(head -n 1 STDLIB_COMMIT)" >> "$GITHUB_OUTPUT"
+
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
 
@@ -334,6 +356,8 @@ jobs:
           # R64: ship the AI context inside lib/ (MCP serves the same file
           # compiled in; agents get the toolchain-accurate copy).
           Copy-Item AI_CONTEXT.md "$stage/lib/"
+          # REL-20261106-1817: exact bundled stdlib identity (the tag can move).
+          Copy-Item STDLIB_COMMIT "$stage/lib/STDLIB_COMMIT"
           Copy-Item LICENSE-MIT, LICENSE-APACHE, NOTICE, README.md $stage
           # CRB-3b: every staged tool (and the bundled solver) must run and
           # self-report the packaged version before the archive is sealed.
@@ -344,8 +368,24 @@ jobs:
           }
           $z3Out = & "$stage/bin/z3.exe" --version 2>&1 | Out-String
           if ($z3Out -notmatch 'Z3 version') { throw "staged z3 does not run: $z3Out" }
+          # REL-20261106-1817: the staged identity must be a real 40-char SHA
+          # and must match the commit the pin resolved in this job.
+          $stdlibSha = (Get-Content "$stage/lib/STDLIB_COMMIT" -TotalCount 1).Trim()
+          if ($stdlibSha -notmatch '^[0-9a-f]{40}$') { throw "staged lib/STDLIB_COMMIT is not a 40-char SHA: $stdlibSha" }
+          if ($stdlibSha -ne '${{ steps.stdlib.outputs.commit }}') { throw "staged lib/STDLIB_COMMIT ($stdlibSha) != resolved stdlib commit ${{ steps.stdlib.outputs.commit }}" }
           $name = "xiom-$ver-windows-x64.zip"
           Compress-Archive -Path "$stage/*" -DestinationPath $name
+          # REL-20261106-1817: fail if the sealed asset is missing the identity
+          # (entries use either / or \ depending on the ZIP writer).
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $zip = [System.IO.Compression.ZipFile]::OpenRead((Resolve-Path $name).Path)
+          try {
+            $entry = $zip.Entries | Where-Object { ($_.FullName -replace '\\','/') -eq 'lib/STDLIB_COMMIT' } | Select-Object -First 1
+            if (-not $entry) { throw "archive $name is missing lib/STDLIB_COMMIT" }
+            $reader = New-Object System.IO.StreamReader($entry.Open())
+            try { $archivedSha = $reader.ReadLine().Trim() } finally { $reader.Dispose() }
+            if ($archivedSha -ne $stdlibSha) { throw "archive $name lib/STDLIB_COMMIT ($archivedSha) != $stdlibSha" }
+          } finally { $zip.Dispose() }
           $hash = (Get-FileHash $name -Algorithm SHA256).Hash.ToLower()
           "$hash  $name" | Set-Content SHA256SUMS-windows-x64 -Encoding ASCII
           "ARTIFACT_NAME=$name" | Out-File -Append $env:GITHUB_ENV -Encoding ASCII
@@ -367,6 +407,8 @@ jobs:
           cp stdlib/package.xi stage/lib/
           # R64: ship the AI context inside lib/ (see the Windows staging step).
           cp AI_CONTEXT.md stage/lib/
+          # REL-20261106-1817: exact bundled stdlib identity (the tag can move).
+          cp STDLIB_COMMIT stage/lib/STDLIB_COMMIT
           cp LICENSE-MIT LICENSE-APACHE NOTICE README.md stage/
           # CRB-3b: every staged tool (and the bundled solver) must run and
           # self-report the packaged version before the archive is sealed.
@@ -376,6 +418,13 @@ jobs:
           done
           z3_out="$(stage/bin/z3 --version 2>&1)"
           case "$z3_out" in *"Z3 version"*) ;; *) echo "::error::staged z3 does not run: $z3_out"; exit 1;; esac
+          # REL-20261106-1817: the staged identity must be a real 40-char SHA
+          # and must match the commit the pin resolved in this job.
+          stdlib_sha="$(head -n 1 STDLIB_COMMIT)"
+          grep -Eq '^[0-9a-f]{40}$' <<<"$stdlib_sha" \
+            || { echo "::error::staged lib/STDLIB_COMMIT is not a 40-char SHA: $stdlib_sha"; exit 1; }
+          [ "$stdlib_sha" = "${{ steps.stdlib.outputs.commit }}" ] \
+            || { echo "::error::staged lib/STDLIB_COMMIT ($stdlib_sha) != resolved stdlib commit ${{ steps.stdlib.outputs.commit }}"; exit 1; }
           # C8: platform-independent WASM build (browser/playground). Built
           # ONLY on the linux-x64 leg: both Linux legs would otherwise upload
           # same-named wasm assets and colliding SHA256SUMS entries.
@@ -403,6 +452,14 @@ jobs:
           fi
           name="xiom-$ver-${{ matrix.platform }}.tar.gz"
           tar -czf "$name" -C stage .
+          # REL-20261106-1817: fail if the sealed asset lost the identity.
+          if ! tar -tzf "$name" | sed 's|^\./||' | grep -qx 'lib/STDLIB_COMMIT'; then
+            echo "::error::archive $name is missing lib/STDLIB_COMMIT"
+            exit 1
+          fi
+          archived_sha="$(tar -xzOf "$name" ./lib/STDLIB_COMMIT | head -n 1)"
+          [ "$archived_sha" = "$stdlib_sha" ] \
+            || { echo "::error::archive $name lib/STDLIB_COMMIT ($archived_sha) != $stdlib_sha"; exit 1; }
           if [ "${{ matrix.platform }}" = "linux-x64" ]; then
             sha256sum "$name" "xiom-wasm-$ver.wasm" xiom-wasm.js xiom-wasm.d.ts xiom-wasm_bg.wasm > "SHA256SUMS-${{ matrix.platform }}"
           else
@@ -417,6 +474,9 @@ jobs:
           path: |
             ${{ env.ARTIFACT_NAME }}
             SHA256SUMS-*
+            # REL-20261106-1817: release-level stdlib identity (same content
+            # on every leg; the release job re-verifies it before publishing).
+            STDLIB_COMMIT
             # C8 regression (v0.62.0): the wasm asset is checksummed by the
             # linux leg but must ALSO ride the artifact set, or the publish
             # job has nothing to upload and the release ships a SHA256SUMS
@@ -473,6 +533,16 @@ jobs:
           else
             git clone --depth 1 --branch "$STDLIB_REF" https://github.com/xiom-lang/stdlib.git stdlib
           fi
+
+      - name: Resolve and verify stdlib commit (REL-20261106-1817)
+        id: stdlib
+        shell: bash
+        run: |
+          set -euo pipefail
+          ref="$(tr -d '\r\n ' < STDLIB_VERSION)"
+          bash scripts/verify_stdlib_pin.sh --stdlib stdlib --ref "$ref" --out STDLIB_COMMIT
+          echo "commit=$(head -n 1 STDLIB_COMMIT)" >> "$GITHUB_OUTPUT"
+
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
 
@@ -537,6 +607,8 @@ jobs:
           cp stdlib/package.xi stage/lib/
           # R64: ship the AI context inside lib/ (see the Windows staging step).
           cp AI_CONTEXT.md stage/lib/
+          # REL-20261106-1817: exact bundled stdlib identity (the tag can move).
+          cp STDLIB_COMMIT stage/lib/STDLIB_COMMIT
           cp LICENSE-MIT LICENSE-APACHE NOTICE README.md stage/
           # CRB-3b: every staged tool (and the bundled solver) must run and
           # self-report the packaged version before the archive is sealed.
@@ -546,8 +618,23 @@ jobs:
           done
           z3_out="$(stage/bin/z3 --version 2>&1)"
           case "$z3_out" in *"Z3 version"*) ;; *) echo "::error::staged z3 does not run: $z3_out"; exit 1;; esac
+          # REL-20261106-1817: the staged identity must be a real 40-char SHA
+          # and must match the commit the pin resolved in this job.
+          stdlib_sha="$(head -n 1 STDLIB_COMMIT)"
+          grep -Eq '^[0-9a-f]{40}$' <<<"$stdlib_sha" \
+            || { echo "::error::staged lib/STDLIB_COMMIT is not a 40-char SHA: $stdlib_sha"; exit 1; }
+          [ "$stdlib_sha" = "${{ steps.stdlib.outputs.commit }}" ] \
+            || { echo "::error::staged lib/STDLIB_COMMIT ($stdlib_sha) != resolved stdlib commit ${{ steps.stdlib.outputs.commit }}"; exit 1; }
           name="xiom-$ver-${{ matrix.platform }}.tar.gz"
           tar -czf "$name" -C stage .
+          # REL-20261106-1817: fail if the sealed asset lost the identity.
+          if ! tar -tzf "$name" | sed 's|^\./||' | grep -qx 'lib/STDLIB_COMMIT'; then
+            echo "::error::archive $name is missing lib/STDLIB_COMMIT"
+            exit 1
+          fi
+          archived_sha="$(tar -xzOf "$name" ./lib/STDLIB_COMMIT | head -n 1)"
+          [ "$archived_sha" = "$stdlib_sha" ] \
+            || { echo "::error::archive $name lib/STDLIB_COMMIT ($archived_sha) != $stdlib_sha"; exit 1; }
           shasum -a 256 "$name" > "SHA256SUMS-${{ matrix.platform }}"
           echo "ARTIFACT_NAME=$name" >> "$GITHUB_ENV"
 
@@ -558,6 +645,7 @@ jobs:
           path: |
             ${{ env.ARTIFACT_NAME }}
             SHA256SUMS-*
+            STDLIB_COMMIT
 
       - name: Attest build provenance
         uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2
@@ -597,6 +685,15 @@ jobs:
             git clone --depth 1 --branch "$STDLIB_REF" https://github.com/xiom-lang/stdlib.git stdlib
           fi
 
+      - name: Verify stdlib pin and stage STDLIB_COMMIT metadata
+        # REL-20261106-1817: re-resolve the pin in the publishing job; this is
+        # the authoritative commit recorded on the release.
+        shell: bash
+        run: |
+          set -euo pipefail
+          ref="$(tr -d '\r\n ' < xiom-src/STDLIB_VERSION)"
+          bash xiom-src/scripts/verify_stdlib_pin.sh --stdlib stdlib --ref "$ref" --out STDLIB_COMMIT
+
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
 
@@ -614,6 +711,46 @@ jobs:
           path: artifacts
           merge-multiple: true
 
+      - name: Verify STDLIB_COMMIT in every release asset
+        # REL-20261106-1817: the identity must be inside every archive, and the
+        # archive copy must equal the commit resolved by this job. The
+        # top-level STDLIB_COMMIT rides along as release metadata.
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected="$(head -n 1 STDLIB_COMMIT)"
+          [[ "$expected" =~ ^[0-9a-f]{40}$ ]] \
+            || { echo "::error::STDLIB_COMMIT is not a 40-char SHA: $expected"; exit 1; }
+          cp STDLIB_COMMIT artifacts/STDLIB_COMMIT
+          found=0
+          shopt -s nullglob
+          for a in artifacts/*.tar.gz; do
+            found=1
+            if ! tar -tzf "$a" | sed 's|^\./||' | grep -qx 'lib/STDLIB_COMMIT'; then
+              echo "::error::$a is missing lib/STDLIB_COMMIT"
+              exit 1
+            fi
+            got="$(tar -xzOf "$a" ./lib/STDLIB_COMMIT | head -n 1)"
+            [ "$got" = "$expected" ] \
+              || { echo "::error::$a lib/STDLIB_COMMIT ($got) != $expected"; exit 1; }
+          done
+          for a in artifacts/*.zip; do
+            found=1
+            python3 - "$a" "$expected" <<'PY'
+          import sys, zipfile
+          path, expected = sys.argv[1], sys.argv[2]
+          with zipfile.ZipFile(path) as z:
+              entry = next((n for n in z.namelist() if n.replace("\\", "/") == "lib/STDLIB_COMMIT"), None)
+              if entry is None:
+                  sys.exit(f"{path}: missing lib/STDLIB_COMMIT")
+              got = z.read(entry).decode("utf-8").splitlines()[0].strip()
+              if got != expected:
+                  sys.exit(f"{path}: lib/STDLIB_COMMIT {got} != {expected}")
+          PY
+          done
+          [ "$found" -eq 1 ] || { echo "::error::no release archives found"; exit 1; }
+          echo "all release archives carry lib/STDLIB_COMMIT=$expected"
+
       - name: Combine checksums
         run: |
           cd artifacts
@@ -621,6 +758,8 @@ jobs:
           # (CRLF); normalize so downstream consumers (and the guard below)
           # never see a trailing \r attached to a filename.
           cat SHA256SUMS-* | tr -d '\r' > SHA256SUMS
+          # REL-20261106-1817: the release-level identity is a shipped asset.
+          sha256sum STDLIB_COMMIT >> SHA256SUMS
           echo "--- SHA256SUMS ---"
           cat SHA256SUMS
 
@@ -656,7 +795,7 @@ jobs:
         run: |
           cd artifacts
           FILES=$(ls *.zip *.tar.gz *.wasm *.js *.d.ts *.vsix 2>/dev/null || true)
-          gh release create "$GITHUB_REF_NAME" $FILES SHA256SUMS \
+          gh release create "$GITHUB_REF_NAME" $FILES STDLIB_COMMIT SHA256SUMS \
             --repo "$GITHUB_REPOSITORY" \
             --verify-tag \
             --title "$GITHUB_REF_NAME" \
@@ -680,6 +819,7 @@ jobs:
             exit 0
           fi
           stdlib_ref="$(tr -d '\r\n ' < xiom-src/STDLIB_VERSION)"
+          stdlib_commit="$(head -n 1 STDLIB_COMMIT)"
           # A docs-dispatch failure must NEVER fail the release: the artifacts
           # and marketplace listings are already published at this point. The
           # usual cause is a PAT that does not cover the docs repo
@@ -689,9 +829,10 @@ jobs:
             -f event_type=compiler-release \
             -f "client_payload[tag]=$TAG" \
             -f "client_payload[stdlib_ref]=$stdlib_ref" \
+            -f "client_payload[stdlib_commit]=$stdlib_commit" \
             -f "client_payload[compiler_ref]=$COMPILER_REF" \
             -f "client_payload[notes_path]=release-notes/$TAG.json"; then
             echo "::warning::compiler-release dispatch to $DOCS_REPO failed (extend XIOM_RELEASE_TOKEN to Contents: read/write on $DOCS_REPO) -- release is unaffected"
             exit 0
           fi
-          echo "dispatched compiler-release to $DOCS_REPO (tag=$TAG stdlib_ref=$stdlib_ref compiler_ref=$COMPILER_REF)"
+          echo "dispatched compiler-release to $DOCS_REPO (tag=$TAG stdlib_ref=$stdlib_ref stdlib_commit=$stdlib_commit compiler_ref=$COMPILER_REF)"

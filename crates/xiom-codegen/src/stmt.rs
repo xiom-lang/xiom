@@ -812,6 +812,7 @@ impl IrEmitter {
                     self.local.local_xiom_types.insert(name.name.clone(), rt.clone());
                     self.track_local_signedness(&name.name, &rt);
                 }
+                self.track_tuple_binding(&name.name, value);
                 // round-13 (tuple payloads): derive the Vec ELEMENT type from
                 // the recorded XIOM type ("Vec[(Int, Int)]" -> "(Int, Int)") so
                 // resolve_vec_elem_type finds it for METHOD-CHAIN returns
@@ -945,6 +946,9 @@ impl IrEmitter {
                 // R3 (json_parse): a direct binding from a contracted
                 // Result/Option<named enum> call owns the returned tree.
                 self.register_enum_tree_drop(&name.name, &alloca, &llvm_ty);
+                // R3/R4: a direct binding from a contracted
+                // Result/Option<named struct> call owns the Some/Ok payload.
+                self.register_struct_payload_drop(&name.name, &alloca, &llvm_ty);
                 // m375 removal slice: a provably-dead boxed `remove`/`pop`
                 // result owns its element; free the Vec data + box now.
                 if llvm_ty == "%struct.Option" && self.unused_local(&name.name)
@@ -1246,6 +1250,7 @@ impl IrEmitter {
                     self.local.local_xiom_types.insert(name.name.clone(), rt.clone());
                     self.track_local_signedness(&name.name, &rt);
                 }
+                self.track_tuple_binding(&name.name, value);
                 // round-13 (tuple payloads): derive the Vec ELEMENT type from
                 // the recorded XIOM type ("Vec[(Int, Int)]" -> "(Int, Int)") so
                 // resolve_vec_elem_type finds it for METHOD-CHAIN returns
@@ -1448,6 +1453,9 @@ impl IrEmitter {
                 // R3 (json_parse): a direct binding from a contracted
                 // Result/Option<named enum> call owns the returned tree.
                 self.register_enum_tree_drop(&name.name, &alloca, &llvm_ty);
+                // R3/R4: a direct binding from a contracted
+                // Result/Option<named struct> call owns the Some/Ok payload.
+                self.register_struct_payload_drop(&name.name, &alloca, &llvm_ty);
                 // m375 removal slice: a provably-dead boxed `remove`/`pop`
                 // result owns its element; free the Vec data + box now.
                 if llvm_ty == "%struct.Option" && self.unused_local(&name.name)
@@ -2344,6 +2352,11 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                     }
                 }
 
+                // REL-20261104-1820-playground: element container types for a
+                // tuple scrutinee, so nested `(Some(a), Ok(b))` patterns can
+                // check tags and bind payloads with their real types.
+                let tuple_elem_types = self.tuple_match_elem_xiom_types(expr_match);
+
                 // Build check block labels and arm labels.
                 //
                 // The set of arms that receive a runtime check block here MUST
@@ -2886,9 +2899,22 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                             }
                         }
                         Pattern::Tuple(..) => {
-                            if scrutinee_alloca_info.is_some() {
-                                self.emitln(&format!("  br label %{arm_label}"));
+                            if let Some((ref alloca, ref _type_name, ref struct_ty)) = scrutinee_alloca_info {
+                                let alloca = alloca.clone();
+                                let struct_ty = struct_ty.clone();
+                                let pattern = arm.pattern.clone();
+                                self.emit_nested_pattern_check(
+                                    &pattern,
+                                    &alloca,
+                                    &struct_ty,
+                                    None,
+                                    tuple_elem_types.as_deref(),
+                                    &arm_label,
+                                    &next,
+                                );
                             } else {
+                                // No scrutinee storage: keep the historical
+                                // permissive branch to the arm body.
                                 self.emitln(&format!("  br label %{arm_label}"));
                             }
                         }
@@ -3148,22 +3174,22 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                                 }
                             }
                         }
-                        // Pre-extract tuple elements for guard access
-                        if let Pattern::Tuple(elements, _) = &arm.pattern {
-                            if let Some((ref alloca, ref type_name, ref struct_ty)) = scrutinee_alloca_info {
-                                for (i, elem) in elements.iter().enumerate() {
-                                    let gep = self.fresh_tmp();
-                                    self.emitln(&format!("  {gep} = getelementptr {struct_ty}, {struct_ty}* {alloca}, i32 0, i32 {i}"));
-                                    let loaded = self.fresh_tmp();
-                                    let field_llvm_ty = self.field_llvm_type(type_name, i);
-                                    self.emitln(&format!("  {loaded} = load {field_llvm_ty}, {field_llvm_ty}* {gep}"));
-                                    let field_alloca = self.fresh_tmp();
-                                    self.emitln(&format!("  {field_alloca} = alloca {field_llvm_ty}"));
-                                    self.emitln(&format!("  store {field_llvm_ty} {loaded}, {field_llvm_ty}* {field_alloca}"));
-                                    if let Pattern::Ident(ident) = elem {
-                                        self.add_local(&ident.name, field_alloca, &field_llvm_ty);
-                                    }
-                                }
+                        // Pre-extract tuple elements for guard access.
+                        // REL-20261104-1820-playground: bind nested
+                        // `(Some(a), Ok(b))` payloads recursively so guards
+                        // can reference them.
+                        if let Pattern::Tuple(..) = &arm.pattern {
+                            if let Some((ref alloca, ref _type_name, ref struct_ty)) = scrutinee_alloca_info {
+                                let alloca = alloca.clone();
+                                let struct_ty = struct_ty.clone();
+                                let pattern = arm.pattern.clone();
+                                self.bind_nested_pattern_value(
+                                    &pattern,
+                                    &alloca,
+                                    &struct_ty,
+                                    None,
+                                    tuple_elem_types.as_deref(),
+                                );
                             }
                         }
                         // Compile guard expression and check result
@@ -3345,22 +3371,22 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                             }
                         }
                     }
-                    // Tuple destructure: extract elements from tuple alloca
-                    if let Pattern::Tuple(elements, _) = &arm.pattern {
-                        if let Some((ref alloca, ref type_name, ref struct_ty)) = scrutinee_alloca_info {
-                            for (i, elem) in elements.iter().enumerate() {
-                                let gep = self.fresh_tmp();
-                                self.emitln(&format!("  {gep} = getelementptr {struct_ty}, {struct_ty}* {alloca}, i32 0, i32 {i}"));
-                                let loaded = self.fresh_tmp();
-                                let field_llvm_ty = self.field_llvm_type(type_name, i);
-                                self.emitln(&format!("  {loaded} = load {field_llvm_ty}, {field_llvm_ty}* {gep}"));
-                                let field_alloca = self.fresh_tmp();
-                                self.emitln(&format!("  {field_alloca} = alloca {field_llvm_ty}"));
-                                self.emitln(&format!("  store {field_llvm_ty} {loaded}, {field_llvm_ty}* {field_alloca}"));
-                                if let Pattern::Ident(ident) = elem {
-                                    self.add_local(&ident.name, field_alloca, &field_llvm_ty);
-                                }
-                            }
+                    // Tuple destructure: extract elements from tuple alloca.
+                    // REL-20261104-1820-playground: recurse through nested
+                    // `Some`/`Ok`/`None`/`Err` (and nested tuples) so the
+                    // payload identifiers are actually bound.
+                    if let Pattern::Tuple(..) = &arm.pattern {
+                        if let Some((ref alloca, ref _type_name, ref struct_ty)) = scrutinee_alloca_info {
+                            let alloca = alloca.clone();
+                            let struct_ty = struct_ty.clone();
+                            let pattern = arm.pattern.clone();
+                            self.bind_nested_pattern_value(
+                                &pattern,
+                                &alloca,
+                                &struct_ty,
+                                None,
+                                tuple_elem_types.as_deref(),
+                            );
                         }
                     }
                     // For Ident patterns, bind the matched value to the identifier
@@ -4274,6 +4300,527 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
             }
         }
         Ok(())
+    }
+
+    /// REL-20261104-1820-playground: remember the element spellings of a
+    /// tuple-literal binding so a later `match data { ... }` can resolve
+    /// `Some`/`Ok` payload types (the LLVM name is erased).
+    fn track_tuple_binding(&mut self, name: &str, value: &Expr) {
+        if let Expr::Tuple(items, _) = value {
+            let elems: Vec<String> = items
+                .iter()
+                .map(|e| self.tuple_elem_xiom_for_expr(e))
+                .collect();
+            self.local.local_tuple_elem_types.insert(name.to_string(), elems);
+        } else {
+            self.local.local_tuple_elem_types.remove(name);
+        }
+    }
+
+    /// REL-20261104-1820-playground: per-element XIOM types for a tuple
+    /// scrutinee. The LLVM tuple struct name erases container args
+    /// (`Tuple__Option__Result`), so nested `Some`/`Ok` checks and payload
+    /// bindings would otherwise see only i64 slots. Prefers the tuple
+    /// expression itself, then the binding recorded at `let`/`var` time.
+    fn tuple_match_elem_xiom_types(&self, expr: &Expr) -> Option<Vec<String>> {
+        match expr {
+            Expr::Tuple(items, _) => Some(
+                items.iter().map(|e| self.tuple_elem_xiom_for_expr(e)).collect(),
+            ),
+            Expr::Ident(id) => self.local.local_tuple_elem_types.get(&id.name).cloned(),
+            Expr::Paren(inner, _) => self.tuple_match_elem_xiom_types(inner),
+            _ => None,
+        }
+    }
+
+    /// One tuple element's container spelling ("Option[Int]", "Result[Int, Str]").
+    /// `_` marks an argument the literal does not constrain.
+    fn tuple_elem_xiom_for_expr(&self, e: &Expr) -> String {
+        match e {
+            Expr::Paren(inner, _) => self.tuple_elem_xiom_for_expr(inner),
+            Expr::Some(inner, _) => {
+                format!("Option[{}]", self.tuple_payload_xiom_for_expr(inner))
+            }
+            Expr::None(_) => "Option[_]".to_string(),
+            Expr::Ok(inner, _) => {
+                format!("Result[{}, _]", self.tuple_payload_xiom_for_expr(inner))
+            }
+            Expr::Err(inner, _) => {
+                format!("Result[_, {}]", self.tuple_payload_xiom_for_expr(inner))
+            }
+            Expr::Ident(id) => {
+                let raw = self.local.local_xiom_types.get(&id.name).cloned()
+                    .or_else(|| self.local.local_opt_payload.get(&id.name).map(|_| "Option".to_string()))
+                    .unwrap_or_else(|| "Int".to_string());
+                let (base, _) = Self::parse_generic_type_string(&raw);
+                let leaf = base.rsplit('.').next().unwrap_or(&base);
+                if leaf == "Option" {
+                    let payload = self.local.local_opt_payload.get(&id.name)
+                        .cloned()
+                        .unwrap_or_else(|| "_".to_string());
+                    format!("Option[{payload}]")
+                } else if leaf == "Result" {
+                    let ok = self.local.local_opt_payload.get(&id.name)
+                        .cloned()
+                        .unwrap_or_else(|| "_".to_string());
+                    let err = self.local.local_err_payload.get(&id.name)
+                        .cloned()
+                        .unwrap_or_else(|| "_".to_string());
+                    format!("Result[{ok}, {err}]")
+                } else {
+                    raw
+                }
+            }
+            _ => self.infer_call_return_xiom(e)
+                .or_else(|| Self::infer_value_xiom_type(e))
+                .or_else(|| self.infer_struct_type_name(e))
+                .unwrap_or_else(|| "Int".to_string()),
+        }
+    }
+
+    /// Type of a payload expression (`Some(inner)` / `Ok(inner)` / `Err(inner)`).
+    fn tuple_payload_xiom_for_expr(&self, e: &Expr) -> String {
+        self.tuple_elem_xiom_for_expr(e)
+    }
+
+    /// REL-20261104-1820: a pointer to nested tuple/container field `field`
+    /// plus that field's LLVM type. `llvm_ty` is the ENCLOSING struct value
+    /// type (never a pointer); pointer-typed fields are loaded first.
+    fn nested_field_ptr(&mut self, slot: &str, llvm_ty: &str, field: usize) -> (String, String) {
+        let struct_name = llvm_ty
+            .strip_prefix("%struct.")
+            .unwrap_or(llvm_ty)
+            .trim_end_matches('*')
+            .to_string();
+        let field_ty = self.emitted_field_llvm_ty(llvm_ty, field)
+            .unwrap_or_else(|| self.field_llvm_type(&struct_name, field));
+        let gep = self.fresh_tmp();
+        if llvm_ty.ends_with('*') {
+            let pointee = llvm_ty.trim_end_matches('*');
+            let loaded = self.fresh_tmp();
+            self.emitln(&format!("  {loaded} = load {llvm_ty}, {llvm_ty}* {slot}"));
+            self.emitln(&format!("  {gep} = getelementptr {pointee}, {pointee}* {loaded}, i32 0, i32 {field}"));
+        } else {
+            self.emitln(&format!("  {gep} = getelementptr {llvm_ty}, {llvm_ty}* {slot}, i32 0, i32 {field}"));
+        }
+        (gep, field_ty)
+    }
+
+    /// The payload type argument of `Option[T]`/`Result[T, E]` when the
+    /// spelling names that container; `_` and unknown args yield None.
+    fn nested_container_arg(xiom_ty: Option<&str>, base: &str, idx: usize) -> Option<String> {
+        let (found_base, args) = Self::parse_generic_type_string(xiom_ty?);
+        let leaf = found_base.rsplit('.').next().unwrap_or(&found_base);
+        if leaf != base {
+            return None;
+        }
+        args.get(idx)
+            .map(|a| a.trim().to_string())
+            .filter(|a| !a.is_empty() && a != "_")
+    }
+
+    /// REL-20261104-1820: check a nested pattern against a value SLOT
+    /// (pointer to the value storage). Always terminates the current block
+    /// with a branch to `success` or `fail`.
+    fn emit_nested_pattern_check(
+        &mut self,
+        pat: &Pattern,
+        slot: &str,
+        llvm_ty: &str,
+        xiom_ty: Option<&str>,
+        tuple_elems: Option<&[String]>,
+        success: &str,
+        fail: &str,
+    ) {
+        match pat {
+            Pattern::Wildcard(_) => {
+                self.emitln(&format!("  br label %{success}"));
+            }
+            Pattern::Ident(id) => {
+                // A unit enum variant is a check; bindings always match.
+                if self.types.enum_variants.contains_key(&id.name)
+                    || self.types.enum_variants.keys().into_iter().any(|k| k.ends_with(&format!(".{}", id.name)))
+                {
+                    self.emit_variant_check_at_slot(&id.name, slot, llvm_ty, success, fail);
+                } else {
+                    self.emitln(&format!("  br label %{success}"));
+                }
+            }
+            Pattern::None(_) => {
+                self.emit_container_disc_check(slot, llvm_ty, 0, success, fail);
+            }
+            Pattern::Some(inner, _) | Pattern::Ok(inner, _) => {
+                let payload_idx = 1usize;
+                let base = if matches!(pat, Pattern::Ok(..)) { "Result" } else { "Option" };
+                self.emit_container_nested_check(
+                    inner, slot, llvm_ty, xiom_ty, base, payload_idx, success, fail,
+                );
+            }
+            Pattern::Err(inner, _) => {
+                self.emit_container_nested_check(
+                    inner, slot, llvm_ty, xiom_ty, "Result", 2, success, fail,
+                );
+            }
+            Pattern::Lit(lit) => {
+                self.emit_nested_lit_check(lit, slot, llvm_ty, success, fail);
+            }
+            Pattern::Tuple(elements, _) => {
+                if elements.is_empty() {
+                    self.emitln(&format!("  br label %{success}"));
+                    return;
+                }
+                let mut next_block: Option<String> = None;
+                for (i, elem) in elements.iter().enumerate() {
+                    if let Some(label) = next_block.take() {
+                        self.emitln(&format!("\n{label}:"));
+                    }
+                    let (elem_slot, elem_ty) = self.nested_field_ptr(slot, llvm_ty, i);
+                    let elem_xiom = tuple_elems
+                        .and_then(|t| t.get(i))
+                        .map(|s| s.as_str());
+                    let succ = if i + 1 < elements.len() {
+                        let label = self.fresh_block("tuple_elem_ok");
+                        next_block = Some(label.clone());
+                        label
+                    } else {
+                        success.to_string()
+                    };
+                    self.emit_nested_pattern_check(
+                        elem, &elem_slot, &elem_ty, elem_xiom, None, &succ, fail,
+                    );
+                }
+            }
+            Pattern::Or(alts, _) => {
+                if alts.is_empty() {
+                    self.emitln(&format!("  br label %{fail}"));
+                    return;
+                }
+                for (i, alt) in alts.iter().enumerate() {
+                    let alt_fail = if i + 1 < alts.len() {
+                        let label = self.fresh_block("or_alt_fail");
+                        label
+                    } else {
+                        fail.to_string()
+                    };
+                    self.emit_nested_pattern_check(
+                        alt, slot, llvm_ty, xiom_ty, tuple_elems, success, &alt_fail,
+                    );
+                    if i + 1 < alts.len() {
+                        self.emitln(&format!("\n{alt_fail}:"));
+                    }
+                }
+            }
+            // Variant/Struct nested inside a tuple are outside this fix's
+            // scope; keep the historical permissive behaviour rather than
+            // rejecting a shape that used to compile.
+            Pattern::Variant(..) | Pattern::Struct(..) => {
+                self.emitln(&format!("  br label %{success}"));
+            }
+        }
+    }
+
+    fn emit_container_disc_check(
+        &mut self,
+        slot: &str,
+        llvm_ty: &str,
+        expected: i64,
+        success: &str,
+        fail: &str,
+    ) {
+        // A boxed/opaque scalar slot cannot be destructured inline; keep the
+        // historical permissive match rather than emitting a GEP on a scalar.
+        if !llvm_ty.starts_with("%struct.") {
+            let _ = (slot, expected, fail);
+            self.emitln(&format!("  br label %{success}"));
+            return;
+        }
+        let (disc_slot, disc_ty) = self.nested_field_ptr(slot, llvm_ty, 0);
+        let loaded = self.fresh_tmp();
+        self.emitln(&format!("  {loaded} = load {disc_ty}, {disc_ty}* {disc_slot}"));
+        let disc = self.scalar_to_i64(&loaded, &disc_ty);
+        let check = self.fresh_tmp();
+        self.emitln(&format!("  {check} = icmp eq i64 {disc}, {expected}"));
+        self.emitln(&format!("  br i1 {check}, label %{success}, label %{fail}"));
+    }
+
+    fn emit_container_nested_check(
+        &mut self,
+        inner: &Pattern,
+        slot: &str,
+        llvm_ty: &str,
+        xiom_ty: Option<&str>,
+        base: &str,
+        payload_idx: usize,
+        success: &str,
+        fail: &str,
+    ) {
+        if !llvm_ty.starts_with("%struct.") {
+            let _ = (slot, base, payload_idx, fail);
+            self.emitln(&format!("  br label %{success}"));
+            return;
+        }
+        let expected: i64 = if payload_idx == 1 { 1 } else { 0 };
+        let (disc_slot, disc_ty) = self.nested_field_ptr(slot, llvm_ty, 0);
+        let loaded = self.fresh_tmp();
+        self.emitln(&format!("  {loaded} = load {disc_ty}, {disc_ty}* {disc_slot}"));
+        let disc = self.scalar_to_i64(&loaded, &disc_ty);
+        let check = self.fresh_tmp();
+        self.emitln(&format!("  {check} = icmp eq i64 {disc}, {expected}"));
+        if matches!(inner, Pattern::Ident(_) | Pattern::Wildcard(_)) {
+            self.emitln(&format!("  br i1 {check}, label %{success}, label %{fail}"));
+            return;
+        }
+        let payload_ok = self.fresh_block("container_payload_ok");
+        self.emitln(&format!("  br i1 {check}, label %{payload_ok}, label %{fail}"));
+        self.emitln(&format!("\n{payload_ok}:"));
+        let (payload_slot, payload_ty) = self.nested_field_ptr(slot, llvm_ty, payload_idx);
+        let payload_xiom = Self::nested_container_arg(xiom_ty, base, payload_idx - 1);
+        if payload_ty.starts_with("%struct.") && !payload_ty.ends_with('*') {
+            self.emit_nested_pattern_check(
+                inner, &payload_slot, &payload_ty, payload_xiom.as_deref(), None, success, fail,
+            );
+        } else {
+            // Scalar payload: literals compare directly, bindings match.
+            match inner {
+                Pattern::Lit(lit) => {
+                    self.emit_nested_lit_check(lit, &payload_slot, &payload_ty, success, fail);
+                }
+                _ => self.emitln(&format!("  br label %{success}")),
+            }
+        }
+    }
+
+    fn emit_nested_lit_check(
+        &mut self,
+        lit: &Literal,
+        slot: &str,
+        llvm_ty: &str,
+        success: &str,
+        fail: &str,
+    ) {
+        match lit {
+            Literal::Int(n, _) => {
+                let loaded = self.fresh_tmp();
+                self.emitln(&format!("  {loaded} = load {llvm_ty}, {llvm_ty}* {slot}"));
+                let value = self.scalar_to_i64(&loaded, llvm_ty);
+                let check = self.fresh_tmp();
+                self.emitln(&format!("  {check} = icmp eq i64 {value}, {n}"));
+                self.emitln(&format!("  br i1 {check}, label %{success}, label %{fail}"));
+            }
+            Literal::Char(c, _) => {
+                let loaded = self.fresh_tmp();
+                self.emitln(&format!("  {loaded} = load {llvm_ty}, {llvm_ty}* {slot}"));
+                let value = self.scalar_to_i64(&loaded, llvm_ty);
+                let check = self.fresh_tmp();
+                self.emitln(&format!("  {check} = icmp eq i64 {value}, {}", *c as i64));
+                self.emitln(&format!("  br i1 {check}, label %{success}, label %{fail}"));
+            }
+            Literal::Bool(b, _) => {
+                let loaded = self.fresh_tmp();
+                self.emitln(&format!("  {loaded} = load {llvm_ty}, {llvm_ty}* {slot}"));
+                let value = self.scalar_to_i64(&loaded, llvm_ty);
+                let check = self.fresh_tmp();
+                self.emitln(&format!("  {check} = icmp eq i64 {value}, {}", if *b { 1 } else { 0 }));
+                self.emitln(&format!("  br i1 {check}, label %{success}, label %{fail}"));
+            }
+            Literal::Float(f, _) => {
+                let loaded = self.fresh_tmp();
+                self.emitln(&format!("  {loaded} = load {llvm_ty}, {llvm_ty}* {slot}"));
+                let value = if llvm_ty == "double" {
+                    loaded.clone()
+                } else if llvm_ty == "float" {
+                    let conv = self.fresh_tmp();
+                    self.emitln(&format!("  {conv} = fpext float {loaded} to double"));
+                    conv
+                } else {
+                    let conv = self.fresh_tmp();
+                    let widened = self.scalar_to_i64(&loaded, llvm_ty);
+                    self.emitln(&format!("  {conv} = sitofp i64 {widened} to double"));
+                    conv
+                };
+                let check = self.fresh_tmp();
+                self.emitln(&format!("  {check} = fcmp oeq double {value}, {f:.16e}"));
+                self.emitln(&format!("  br i1 {check}, label %{success}, label %{fail}"));
+            }
+            Literal::Str(s, _) => {
+                let loaded = self.fresh_tmp();
+                self.emitln(&format!("  {loaded} = load {llvm_ty}, {llvm_ty}* {slot}"));
+                let ptr = if llvm_ty == "i8*" {
+                    loaded.clone()
+                } else {
+                    let p = self.fresh_tmp();
+                    let value = self.scalar_to_i64(&loaded, llvm_ty);
+                    self.emitln(&format!("  {p} = inttoptr i64 {value} to i8*"));
+                    p
+                };
+                let cstr = self.intern_cstring(s);
+                let cmp = self.fresh_tmp();
+                self.emitln(&format!("  {cmp} = call i32 @strcmp(i8* {ptr}, i8* {cstr})"));
+                let eq = self.fresh_tmp();
+                self.emitln(&format!("  {eq} = icmp eq i32 {cmp}, 0"));
+                self.emitln(&format!("  br i1 {eq}, label %{success}, label %{fail}"));
+            }
+        }
+    }
+
+    fn scalar_to_i64(&mut self, value: &str, llvm_ty: &str) -> String {
+        match llvm_ty {
+            "i8" => {
+                let out = self.fresh_tmp();
+                self.emitln(&format!("  {out} = sext i8 {value} to i64"));
+                out
+            }
+            "i16" => {
+                let out = self.fresh_tmp();
+                self.emitln(&format!("  {out} = sext i16 {value} to i64"));
+                out
+            }
+            "i32" => {
+                let out = self.fresh_tmp();
+                self.emitln(&format!("  {out} = sext i32 {value} to i64"));
+                out
+            }
+            "i1" => {
+                let out = self.fresh_tmp();
+                self.emitln(&format!("  {out} = zext i1 {value} to i64"));
+                out
+            }
+            "i8*" => {
+                let out = self.fresh_tmp();
+                self.emitln(&format!("  {out} = ptrtoint i8* {value} to i64"));
+                out
+            }
+            _ => value.to_string(),
+        }
+    }
+
+    fn emit_variant_check_at_slot(
+        &mut self,
+        variant: &str,
+        slot: &str,
+        llvm_ty: &str,
+        success: &str,
+        fail: &str,
+    ) {
+        if !llvm_ty.starts_with("%struct.") {
+            let _ = (slot, fail);
+            self.emitln(&format!("  br label %{success}"));
+            return;
+        }
+        let leaf = variant.rsplit('.').next().unwrap_or(variant);
+        let struct_name = llvm_ty
+            .strip_prefix("%struct.")
+            .unwrap_or(llvm_ty)
+            .trim_end_matches('*')
+            .to_string();
+        let variant_idx = self.types.enum_variants.get(&struct_name)
+            .and_then(|vars| vars.iter().position(|(v, _)| v == leaf || v == variant))
+            .or_else(|| {
+                self.types.enum_variants.entries().into_iter()
+                    .find(|(k, _)| k.ends_with(&format!(".{struct_name}")))
+                    .and_then(|(_, vars)| vars.iter().position(|(v, _)| v == leaf || v == variant))
+            });
+        if let Some(idx) = variant_idx {
+            self.emit_container_disc_check(slot, llvm_ty, idx as i64, success, fail);
+        } else {
+            self.emitln(&format!("  br label %{fail}"));
+        }
+    }
+
+    /// REL-20261104-1820: bind a nested pattern's identifiers from a value
+    /// SLOT (pointer to the value storage), recursively through tuple fields
+    /// and Option/Result payloads.
+    fn bind_nested_pattern_value(
+        &mut self,
+        pat: &Pattern,
+        slot: &str,
+        llvm_ty: &str,
+        xiom_ty: Option<&str>,
+        tuple_elems: Option<&[String]>,
+    ) {
+        match pat {
+            Pattern::Ident(id) => {
+                let mut bind_ty = llvm_ty.to_string();
+                let mut bind_val = self.fresh_tmp();
+                self.emitln(&format!("  {bind_val} = load {llvm_ty}, {llvm_ty}* {slot}"));
+                if llvm_ty == "i64" {
+                    match xiom_ty.map(|s| s.trim()) {
+                        Some("Str") | Some("&Str") | Some("&mut Str") => {
+                            let ptr = self.fresh_tmp();
+                            self.emitln(&format!("  {ptr} = inttoptr i64 {bind_val} to i8*"));
+                            bind_val = ptr;
+                            bind_ty = "i8*".to_string();
+                        }
+                        Some("Float64") | Some("Float") => {
+                            let f = self.fresh_tmp();
+                            self.emitln(&format!("  {f} = bitcast i64 {bind_val} to double"));
+                            bind_val = f;
+                            bind_ty = "double".to_string();
+                        }
+                        Some("Float32") => {
+                            let t32 = self.fresh_tmp();
+                            self.emitln(&format!("  {t32} = trunc i64 {bind_val} to i32"));
+                            let f = self.fresh_tmp();
+                            self.emitln(&format!("  {f} = bitcast i32 {t32} to float"));
+                            bind_val = f;
+                            bind_ty = "float".to_string();
+                        }
+                        _ => {}
+                    }
+                }
+                let alloca = self.fresh_tmp();
+                self.emitln(&format!("  {alloca} = alloca {bind_ty}"));
+                self.emitln(&format!("  store {bind_ty} {bind_val}, {bind_ty}* {alloca}"));
+                self.add_local(&id.name, alloca, &bind_ty);
+                if let Some(ty) = xiom_ty {
+                    if !ty.is_empty() && ty != "_" {
+                        self.local.local_xiom_types.insert(id.name.clone(), ty.to_string());
+                    }
+                }
+            }
+            Pattern::Some(inner, _) | Pattern::Ok(inner, _) => {
+                if !llvm_ty.starts_with("%struct.") {
+                    let _ = (slot, inner);
+                    return;
+                }
+                let base = if matches!(pat, Pattern::Ok(..)) { "Result" } else { "Option" };
+                let (payload_slot, payload_ty) = self.nested_field_ptr(slot, llvm_ty, 1);
+                let payload_xiom = Self::nested_container_arg(xiom_ty, base, 0);
+                self.bind_nested_pattern_value(
+                    inner, &payload_slot, &payload_ty, payload_xiom.as_deref(), None,
+                );
+            }
+            Pattern::Err(inner, _) => {
+                if !llvm_ty.starts_with("%struct.") {
+                    let _ = (slot, inner);
+                    return;
+                }
+                let (payload_slot, payload_ty) = self.nested_field_ptr(slot, llvm_ty, 2);
+                let payload_xiom = Self::nested_container_arg(xiom_ty, "Result", 1);
+                self.bind_nested_pattern_value(
+                    inner, &payload_slot, &payload_ty, payload_xiom.as_deref(), None,
+                );
+            }
+            Pattern::Tuple(elements, _) => {
+                if !llvm_ty.starts_with("%struct.") {
+                    return;
+                }
+                for (i, elem) in elements.iter().enumerate() {
+                    let (elem_slot, elem_ty) = self.nested_field_ptr(slot, llvm_ty, i);
+                    let elem_xiom = tuple_elems
+                        .and_then(|t| t.get(i))
+                        .map(|s| s.as_str());
+                    self.bind_nested_pattern_value(elem, &elem_slot, &elem_ty, elem_xiom, None);
+                }
+            }
+            Pattern::Or(alts, _) => {
+                if let Some(first) = alts.first() {
+                    self.bind_nested_pattern_value(first, slot, llvm_ty, xiom_ty, tuple_elems);
+                }
+            }
+            Pattern::Wildcard(_) | Pattern::None(_) | Pattern::Lit(_) => {}
+            Pattern::Variant(..) | Pattern::Struct(..) => {}
+        }
     }
 
     /// R2: Collect variable names captured by a spawn block -- names referenced

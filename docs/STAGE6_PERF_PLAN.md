@@ -682,3 +682,146 @@ rustc study: high value for drop/borrow/definite-init semantics and
 selfhost architecture; medium for compile-time; low direct value for
 runtime speed. Use it to keep semantics and the selfhost faithful, not as a
 prerequisite for runtime tuning.
+
+## Phase B runtime-C results (2026-11-06, post-v0.65.6)
+
+**Status:** one measured runtime-C win implemented (Linux x86_64 large-block
+THP hint in `xiom_alloc`); emitted IR is byte-identical, so there is no
+selfhost parity debt. No commits, tags, pushes, or relay mutations.
+
+### Probes and environment
+
+- Sources are the timed-trial sources from
+  `E:\xiom-projects\xiom-benchmark-chaos\data\evidence\run_1793822650410\trials\run_1793822650410_xiom_t{1,2,4}-*_system_t0\source.xi`
+  (identical to `reference/systems-arena/t{1,2,4}-*.xi`).
+- Toolchain: published `xiom-0.65.6-linux-x64.tar.gz`
+  (sha256 `a8fc6668163e5dd87d2516483d31a3a0f614c8a3ef6ecfb790e6dfc8b7e4ce5d`),
+  bundled stdlib; flags `--release --target native`.
+- Host: WSL2 Ubuntu, kernel 6.6.87.2-microsoft-standard-WSL2, 32 vCPU.
+- Evidence container baseline (`trial.json`): t1 **18 ms**, t2 **26 ms**,
+  t4 **20 ms**. WSL reproduces t1 14.5 / t2 20.8 / t4 17.4 ms wall (the
+  absolute offset is host process-spawn cost, not runtime init).
+- Two timers: harness-shaped wall clock (1 warm-up + 7 samples, 3 rounds)
+  and a `__libc_start_main` wrapper that times only `main` (excludes
+  exec/loader). The main-only timer removes host spawn noise and is the
+  split below.
+
+### Baseline split (main-only medians, N=21 interleaved)
+
+| probe | main | split | conclusion |
+|---|---:|---|---|
+| t1 | 7.55 ms | init/push 6.39 ms (85%), alloc/free 1.17 ms (15%) | the 1,048,576-element `pool.push(0)` loop dominates |
+| t2 | 16.09 ms | build 5.75 ms (36%), enqueue+dequeue 10.34 ms (64%) | 8 MB alloc + 1M pushes, then 1M enq + 1M deq |
+| t4 | 12.57 ms | checksum-only 3.88 ms, parse-only 1.68 ms, combined 12.57 ms | no runtime calls in the loop; combining both inlined helpers blows up the loop body |
+
+- **Startup init:** `main` for an empty xiom program is 6.7 us vs 0.1 us for
+  an empty C program; wall time matches C empty (3.75 ms). All wall overhead
+  is exec/loader/exit, not runtime initialization. Nothing to win in Phase B.
+- **Allocator/zeroing:** t1 allocates 8,388,608 B and t2 8,000,008 B, once
+  each. A measurement-only `calloc` variant (no explicit `memset`) was
+  neutral (t1 8.84 vs 8.24 ms; t2 16.68 vs 17.80 ms, within noise), and a
+  no-zero variant was likewise neutral. The explicit zeroing pass is not the
+  cost; first-touch 4 KiB page faults are.
+- **Guard/confinement:** `xiom_guard_heap_enter`/`exit` are not called in
+  any of the three mains. The guard arena is inactive, so each allocation
+  takes the `active <= 0` fallback; there are only 3-6 allocations per run
+  and the guard overhead is < 0.01 ms. Guard-free/realloc fast paths have no
+  measurable target here.
+- **Str/Vec growth:** no `Str` growth and no `Vec` growth in the hot path
+  (every buffer is `with_capacity`; `io.println("OK")` is the only string
+  work). Size classes and realloc paths cannot help these probes.
+- **t2 queue ops:** 10.34 ms for 1M enqueue + 1M dequeue. A C microbenchmark
+  with the same algorithm and inline seq_cst atomics takes 9.0-9.7 ms;
+  replacing `% capacity` with a power-of-two mask changes the probe by
+  <= 0.02 ms (16.576 vs 16.565 ms), so `idiv` is not the gap. The ops are
+  already near C parity.
+- **t4:** `compute_checksum` and `parse_packet` are both force-inlined into
+  the 1M-iteration loop. Main assembly is 683 instructions for the combined
+  loop vs 189 (checksum only) and 307 (parse only), and the combined loop is
+  ~2.3x the sum of the isolated loops. This is an inlining/code-layout
+  pathology, not a runtime-C cost.
+
+### Implemented win: THP hint for large `xiom_alloc` blocks
+
+`E:\xiom-lang\stdlib\runtime\xiom_runtime.c:32` adds `<sys/mman.h>` on POSIX;
+`:394-411` calls `madvise(MADV_HUGEPAGE)` on the page-aligned span **before**
+the existing `memset`, for allocations >= 4 MiB on Linux x86_64. The hint is
+ignored when THP is disabled, and zeroing semantics are unchanged.
+
+Before/after (main-only, N=21 interleaved, same sources/flags):
+
+| probe | before | after | delta |
+|---|---:|---:|---:|
+| t1 | 8.73 ms | 3.85 ms | **-55.9%** |
+| t2 | 16.71 ms | 13.60 ms | **-18.6%** |
+| t4 | 12.77 ms | 12.86 ms | +0.7% (neutral; no large allocation) |
+
+The exact edited repo runtime (`E:\xiom-lang\stdlib`) reproduced the same
+direction in an independent N=15 interleaved run: t1 10.21 -> 4.07 ms,
+t2 17.24 -> 14.34 ms, t4 13.57 -> 13.55 ms.
+
+Harness-shaped wall medians (median of three 7-sample rounds, exact edited
+repo runtime):
+
+| probe | before | after | delta |
+|---|---:|---:|---:|
+| t1 | 12.84 ms | 7.51 ms | **-41.5%** |
+| t2 | 22.26 ms | 17.67 ms | **-20.6%** |
+| t4 | 16.57 ms | 15.92 ms | -3.9% (noise; main-only is neutral) |
+
+The t4 number is not claimed: t4 allocates only 320 B and the main-only
+measurement is unchanged. The gain is the ~8 MB first-touch page-fault storm
+in t1/t2, amortized to 2 MiB pages.
+
+### Verification
+
+- **Emitted IR unchanged:** `--emit-ir` SHA256 is byte-identical for all
+  three probes between the unpatched and patched runtime stdlib
+  (t1 `4d240586...`, t2 `5f2448be...`, t4 `5d0443ae...`). Runtime C is not
+  part of the IR.
+- **ASan:** t1 and t2 compiled with `--sanitize=address`, 3 runs each, rc 0,
+  empty stderr.
+- **Gates (Windows, current tree):** `cargo test -p xiom-check` 219/219;
+  `checker_locks` 60/60; `checker_spec_gaps` 26/26 and `-- --ignored` 0;
+  `feature_regression_tests` 584/584 (`RUST_MIN_STACK=64MB`);
+  `tests/soak/run_memory_gates.ps1` 22/22; `cargo build -p xiom --release`.
+- **Linux repo-stdlib compile:** the edited `E:\xiom-lang\stdlib` runtime
+  compiles and runs t1/t2/t4 with the v0.65.6 Linux compiler (rc 0).
+
+### Ranked remaining Phase B plan (not implemented)
+
+1. **Extend the THP hint to guard-arena large blocks** (`xiom_guard_valloc`
+   and the >4 MiB path in `xiom_guard_alloc`) and to large
+   `xiom_guard_copy_out` buffers. Same hint-only rationale; expected to help
+   confined/unsafe workloads, not t1/t2/t4 (their guard arena is inactive).
+   Low risk, unmeasured here.
+2. **Right-size / reserve helpers for stdlib containers** (`Vec.filled`,
+   `Vec.reserve_exact` use) so new benchmark solutions avoid the 1M
+   `push(0)` loop. This is stdlib/API work, not a runtime-C change; it helps
+   only new solution code (the frozen task sources still loop).
+3. **Startup/runtime init:** no action; measured at < 7 us and not visible
+   above exec/loader.
+4. **Rejected after measurement:** `calloc`/no-memset (neutral), size-class
+   allocator (3-6 large allocations per run), guard-free/realloc fast paths
+   (guard inactive), server parse buffers (not on these probes).
+
+### Phase C boundary (IR/codegen, not Phase B)
+
+These cannot be fixed in runtime C without changing emitted IR, so they
+belong to Phase C and must renew the selfhost parity baselines:
+
+- **`Vec.push` / constant-fill codegen:** the remaining t1 init (~2.7 ms
+  after THP) and t2 build (~3.3 ms after THP) are per-element capacity
+  checks, field reloads and element-size dispatch. A bulk fill or a
+  recognized constant-fill fast path would attack this.
+- **t4 inlining policy:** both helpers inlined into the 1M loop produce a
+  683-instruction body; preventing pathological inlining, outlining cold
+  paths, or reducing bounds checks should recover most of the 12.6 ms.
+- **t2 queue ops:** near C parity (10.34 ms vs 9.0-9.7 ms C microbench), so
+  the remaining gap to Rust is codegen/algorithmic, not runtime calls.
+  Atomic-call overhead is only ~0.2-0.6 ms in the microbench.
+- **t1 alloc/free ops:** 1.17 ms, dominated by non-inlined
+  `BuddyAllocator.*` calls and the per-entry recursion counter; codegen
+  inlining/calling-convention work.
+- Calling convention/data layout, elimination of the per-function TLS
+  recursion-counter pair, and the tier-fork A/B decision remain Phase C.

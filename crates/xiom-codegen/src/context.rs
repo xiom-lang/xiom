@@ -403,6 +403,30 @@ pub enum VecDrop {
         /// Module-level recursive drop helper symbol.
         helper: String,
     },
+    /// A local bound DIRECTLY from a contracted `#[owns_return]` /
+    /// `#[consumes_agg]` Result/Option<named struct> call. Provenance-only,
+    /// exactly like `EnumTree`: a match arm, literal constructor, or any
+    /// non-contracted call stays leak-only. At scope exit the Some/Ok payload
+    /// struct's owned fields (Vec/Str/Map, recursively through nested structs,
+    /// tuples and Vec elements) are reclaimed by a metadata-generated helper.
+    /// None/Err is a no-op (the discriminant is checked first). R3
+    /// (`#[owns_return]`) frees fresh Str leaves; R4 (`#[consumes_agg]`) frees
+    /// containers only and leaves borrowed/literal Str leaves alive.
+    StructPayload {
+        /// Hoisted slot holding the binding's Result/Option pointer.
+        ptr_slot: String,
+        flag: String,
+        /// LLVM type of the Result/Option binding.
+        result_llvm_ty: String,
+        /// Field index of the discriminant ("discriminant").
+        disc_idx: u32,
+        /// Field index of the Some/Ok payload ("value").
+        payload_idx: u32,
+        /// LLVM struct type of the payload (`%struct.ServerRequest`).
+        payload_llvm_ty: String,
+        /// Module-level recursive field-drop helper symbol.
+        helper: String,
+    },
 }
 
 impl VecDrop {
@@ -413,7 +437,8 @@ impl VecDrop {
             | VecDrop::Ptr { flag, .. }
             | VecDrop::Aggregate { flag, .. }
             | VecDrop::BoxedVec { flag, .. }
-            | VecDrop::EnumTree { flag, .. } => flag,
+            | VecDrop::EnumTree { flag, .. }
+            | VecDrop::StructPayload { flag, .. } => flag,
         }
     }
 }
@@ -550,6 +575,14 @@ pub struct FunctionContext {
     /// Result/Option<named enum> call -> the enum type name. Reclaimed as a
     /// recursive tree at scope exit (R3 / json_parse).
     pub enum_tree: HashMap<String, String>,
+    /// A local bound DIRECTLY from a contracted `#[owns_return]` /
+    /// `#[consumes_agg]` Result/Option<named struct> call ->
+    /// (struct type name, free_strings). At scope exit the Some/Ok payload
+    /// struct's owned fields are reclaimed by a metadata-generated recursive
+    /// helper; None/Err is a no-op. `free_strings` is true for R3
+    /// (`#[owns_return]`: fresh Str leaves) and false for R4
+    /// (`#[consumes_agg]`: borrowed Str leaves; containers only).
+    pub struct_payload_tree: HashMap<String, (String, bool)>,
     /// Fresh aggregates whose owned `Vec[Str]` fields were populated only by
     /// `#[consumes_str]` calls with fresh Str args (Map/Set put). The field
     /// elements are freed before the field buffers at scope exit.
@@ -802,6 +835,13 @@ pub struct LocalContext {
     /// M17: XIOM type name for each local. Maps local name -> XIOM type string
     /// (e.g. "x" -> "Int8", "y" -> "UInt16"). Populated from declared type annotations.
     pub local_xiom_types: HashMap<String, String>,
+    /// REL-20261104-1820-playground: per-element XIOM type spellings
+    /// ("Option[Int]", "Result[Int, Str]") for a local bound to a tuple
+    /// literal (`let data = (Some(5), Ok("ready"));`). `match data` needs the
+    /// element container args to check nested `Some`/`Ok` tags and to bind
+    /// payloads with their real types; the LLVM tuple struct name erases
+    /// those args to `Tuple__Option__Result`.
+    pub local_tuple_elem_types: HashMap<String, Vec<String>>,
     /// R18: names bound by a contract implication's BARE `is Some/Ok/Err`
     /// scrutinee rebind (`result is Some => result.len()`). The bound value is
     /// the PAYLOAD slot; a `.value`/`.error` field read on such a name means

@@ -77,6 +77,17 @@ pub struct IrEmitter {
     /// builders (json_parse). A direct binding owns the returned tree and
     /// reclaims it with a metadata-generated recursive drop helper.
     pub fresh_enum_tree_returns: HashMap<String, String>,
+    /// Leaf -> (named struct type, free_strings) for contracted
+    /// `#[owns_return]` / `#[consumes_agg]` Result/Option<named struct>
+    /// builders (server_parse_request). A direct binding owns the returned
+    /// Some/Ok payload; `free_strings` selects the R3 (fresh Str leaves) vs
+    /// R4 (container-only) drop helper.
+    pub fresh_struct_payload_returns: HashMap<String, (String, bool)>,
+    /// Struct type keys whose payload drop helper must be emitted at module
+    /// end. Populated by `register_struct_payload_drop` with the EXACT payload
+    /// LLVM type key seen at the binding, so the helper signature and the
+    /// call site can never disagree.
+    pub struct_payload_helpers: HashSet<(String, bool)>,
     /// Leaf names of `#[owns_str]` functions returning a freshly allocated
     /// Str. A direct call-return binding is reclaimed at scope exit; literals
     /// and borrowed/identity returns are never included (R2).
@@ -114,6 +125,11 @@ pub struct IrEmitter {
     pub known_nonretaining: Arc<HashSet<String>>,
     /// Program-global struct -> Vec field names map (built once).
     pub elem_type_vec_fields: Arc<HashMap<String, Vec<String>>>,
+    /// Program-global enum type key/leaf -> variant names (built once). A
+    /// returned `Type.Variant(value)` MOVES `value` into the aggregate.
+    pub enum_ctors: Arc<HashMap<String, HashSet<String>>>,
+    /// Program-global bare enum-variant constructor names (built once).
+    pub bare_enum_ctors: Arc<HashSet<String>>,
     /// Force allocations to the MAIN heap even inside a guard arena. Set for
     /// `#[owns_return]` functions (their caller owns/frees the result) and for
     /// drop-classified Vec locals inside confined blocks. The arena must never
@@ -221,6 +237,8 @@ impl IrEmitter {
             fresh_payload_returns: HashSet::new(),
             fresh_aggregate_returns: HashSet::new(),
             fresh_enum_tree_returns: HashMap::new(),
+            fresh_struct_payload_returns: HashMap::new(),
+            struct_payload_helpers: HashSet::new(),
             fresh_str_returns: HashSet::new(),
             consumes_agg_returns: HashMap::new(),
             consumes_agg_callees: HashSet::new(),
@@ -231,6 +249,8 @@ impl IrEmitter {
             borrows_str_callees: Arc::new(HashMap::new()),
             known_nonretaining: Arc::new(HashSet::new()),
             elem_type_vec_fields: Arc::new(HashMap::new()),
+            enum_ctors: Arc::new(HashMap::new()),
+            bare_enum_ctors: Arc::new(HashSet::new()),
             force_main_heap_alloc: false,
             indexed_elem_types: HashMap::new(),
             module_deferred_types: Vec::new(),
@@ -7140,6 +7160,10 @@ impl IrEmitter {
         // check so the call sites resolve, and at module level so every type
         // definition and the xiom_guard_free/xiom_str_len declares precede it.
         self.emit_enum_tree_drop_helpers();
+        // R3/R4: recursive owned-field helpers for contracted
+        // Result/Option<named struct> payloads (server_parse_request). Emitted
+        // here so every type definition and runtime declare precedes them.
+        self.emit_struct_payload_drop_helpers();
 
         // m142: any called-but-undefined function symbol is a hard error. The
         // pass used to synthesize a `ret 0` stub, which answered unresolved
@@ -9993,7 +10017,15 @@ fast:
                         })
                         .map(|p| p.name.name.clone())
                         .collect();
-                    self.prepass_owned_vec_locals(body, trust_unsafe, &by_value_vec_params);
+                    let str_params: HashSet<String> = fd
+                        .params
+                        .iter()
+                        .filter(|p| {
+                            matches!(&p.ty, Type::Named(id, _) if id.name == "Str" || id.name.ends_with(".Str"))
+                        })
+                        .map(|p| p.name.name.clone())
+                        .collect();
+                    self.prepass_owned_vec_locals(body, trust_unsafe, &by_value_vec_params, &str_params);
             }
 
             // Compile body

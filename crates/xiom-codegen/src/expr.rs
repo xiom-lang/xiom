@@ -153,7 +153,7 @@ impl IrEmitter {
     /// Lower a single binary operation for the iterative fold path (deep-chain
     /// hardening). Takes pre-compiled operands and produces the folded result.
     /// Handles arithmetic (Add/Sub/Mul), bitwise (And/Or/Xor), and float coercions.
-    fn compile_binop_fold(&mut self, l: &str, lt: &str, r: &str, rt: &str, op: &BinOp, l_expr: &Expr, r_expr: &Expr) -> Result<(String, String), String> {
+    fn compile_binop_fold(&mut self, l: &str, lt: &str, r: &str, rt: &str, op: &BinOp, l_expr: &Expr, r_expr: &Expr, l_owned: bool) -> Result<(String, String, bool), String> {
         // C-PULSE-04: bare reference operands read the pointee before any
         // arithmetic dispatch (the write side already stores through them).
         // m294: Eq/Neq are excluded -- the equality path applies its own
@@ -182,9 +182,21 @@ impl IrEmitter {
                     let r_is_int = self.concat_operand_is_int(r_expr, rt);
                     let lp = self.concat_val_to_i8ptr(&l, &lt, l_is_int);
                     let rp = self.concat_val_to_i8ptr(&r, &rt, r_is_int);
+                    // Free freshly allocated operand temporaries once the
+                    // concat has copied their bytes. The accumulator's
+                    // ownership is tracked by the fold loop (`l_owned`); the
+                    // right operand is the expression just compiled.
+                    let free_l = lt == "i8*" && l_owned;
+                    let free_r = rt == "i8*" && self.concat_operand_is_owned_temp(r_expr);
                     let res = self.fresh_tmp();
                     self.emitln(&format!("  {res} = call i8* @xiom_str_concat(i8* {lp}, i8* {rp})"));
-                    return Ok((res, LLVM_STR_PTR.to_string()));
+                    if free_l {
+                        self.emit_free_str_ptr(&lp);
+                    }
+                    if free_r {
+                        self.emit_free_str_ptr(&rp);
+                    }
+                    return Ok((res, LLVM_STR_PTR.to_string(), true));
                 }
                 // Pointer arithmetic: `p + i` / `p - i` on a REAL pointer
                 // (i64*/i32*/%struct.X*/double*... -- the i8* Str case was caught
@@ -217,7 +229,7 @@ impl IrEmitter {
                         } else {
                             self.emitln(&format!("  {gep} = getelementptr {pointee}, {pty} {pval}, i64 {idx}"));
                         }
-                        return Ok((gep, pty));
+                        return Ok((gep, pty, false));
                     }
                 }
         let is_float = lt == "float" || lt == "double" || lt == "fp128" || rt == "float" || rt == "double" || rt == "fp128";
@@ -313,10 +325,10 @@ impl IrEmitter {
             self.emitln("  call void @llvm.trap()");
             self.emitln("  unreachable");
             self.emitln(&format!("\n{ok_block}:"));
-            return Ok((result_val, ty.to_string()));
+            return Ok((result_val, ty.to_string(), false));
         }
         self.emitln(&format!("  {tmp} = {llvm_op} {ty} {lv}, {rv}"));
-        Ok((tmp, ty.to_string()))
+        Ok((tmp, ty.to_string(), false))
     }
 
     /// CTFE Phase A: Evaluate a const-init expression at compile time.
@@ -1577,15 +1589,25 @@ impl IrEmitter {
                         // Compile the first operand
                         let (mut acc_val, mut acc_ty) = self.compile_expr(&operands[0])?;
                         let mut acc_expr = operands[0].clone();
+                        // Track whether the accumulator SSA value is a fresh
+                        // Str temp (a nested concat) that may be freed after
+                        // the next concat copies it. `acc_expr` is rewritten
+                        // to the last operand below for type heuristics, so it
+                        // cannot carry this provenance.
+                        let mut acc_owned = acc_ty == "i8*"
+                            && self.concat_operand_is_owned_temp(&operands[0]);
                         // Iteratively compile and fold each remaining operand
                         for operand in &operands[1..] {
                             let (r_val, r_ty) = self.compile_expr(operand)?;
                             let (l, lt) = (acc_val, acc_ty);
                             let (r, rt) = (r_val, r_ty);
                             // Reuse the standard BinOp lowering for each pair
-                            let folded = self.compile_binop_fold(&l, &lt, &r, &rt, op, &acc_expr, operand)?;
+                            let folded = self.compile_binop_fold(
+                                &l, &lt, &r, &rt, op, &acc_expr, operand, acc_owned,
+                            )?;
                             acc_val = folded.0;
                             acc_ty = folded.1;
+                            acc_owned = folded.2;
                             acc_expr = (*operand).clone();
                         }
                         return Ok((acc_val, acc_ty));
@@ -1700,8 +1722,20 @@ impl IrEmitter {
                     let r_is_int = self.concat_operand_is_int(right, &rt);
                     let lp = self.concat_val_to_i8ptr(&l, &lt, l_is_int);
                     let rp = self.concat_val_to_i8ptr(&r, &rt, r_is_int);
+                    // Free freshly allocated operand temporaries once the
+                    // concat has copied their bytes (nested concats, to_str
+                    // conversions, #[owns_str] calls). Locals/literals are
+                    // borrowed and never freed.
+                    let free_l = lt == "i8*" && self.concat_operand_is_owned_temp(left);
+                    let free_r = rt == "i8*" && self.concat_operand_is_owned_temp(right);
                     let res = self.fresh_tmp();
                     self.emitln(&format!("  {res} = call i8* @xiom_str_concat(i8* {lp}, i8* {rp})"));
+                    if free_l {
+                        self.emit_free_str_ptr(&lp);
+                    }
+                    if free_r {
+                        self.emit_free_str_ptr(&rp);
+                    }
                     return Ok((res, LLVM_STR_PTR.to_string()));
                 }
                 // Pointer arithmetic: `p + i` / `p - i` on a REAL pointer
@@ -6274,7 +6308,12 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                 // locals are scanned/owned like any other function; the
                 // enclosing frame's drops stay suspended.
                 self.clear_vec_drops();
-                self.prepass_owned_vec_locals(block, false, &std::collections::HashSet::new());
+                self.prepass_owned_vec_locals(
+                    block,
+                    false,
+                    &std::collections::HashSet::new(),
+                    &std::collections::HashSet::new(),
+                );
                 self.in_unsafe_block_fn = true;
                 self.tmp_counter = unsafe_id * 1000;
                 self.block_counter = unsafe_id * 1000;

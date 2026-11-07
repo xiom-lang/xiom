@@ -39,6 +39,70 @@ No commit/push/tag has been made for this set.
   website-8 (a)(c) fixed.
 - **Selfhost**: T6 37/64 (non-phase-8 work complete). Not a release blocker;
   no bootstrap binary ships.
+- **Stdlib identity (REL-20261106-1817)**: every platform archive ships
+  `lib/STDLIB_COMMIT` with the exact bundled stdlib commit, so consumers no
+  longer have to trust a movable tag name. The release also publishes a
+  top-level `STDLIB_COMMIT` asset (checksummed in `SHA256SUMS`) and sends
+  `stdlib_commit` in the `compiler-release` docs payload.
+
+## Stdlib commit artifact (REL-20261106-1817)
+
+`STDLIB_VERSION` names a tag such as `stdlib-v0.65.6`; tags can be force-moved,
+so the release records the resolved commit identity in addition to the tag.
+
+**Format.** `lib/STDLIB_COMMIT` (and the top-level release asset of the same
+name) is two lines:
+
+```text
+6fdde4ee89f0108025715031e60976ca7d1a5e82
+stdlib_version=stdlib-v0.65.6 stdlib_commit=6fdde4ee89f0108025715031e60976ca7d1a5e82 stdlib_package_version=0.65.6
+```
+
+The first line is always the exact 40-character commit SHA. The second line is
+a one-line record of the tag, commit, and the `version:` field from the pinned
+`package.xi`. Every Windows zip, Linux tar.gz, and macOS tar.gz contains
+`lib/STDLIB_COMMIT`. The universal VSIX bundles no platform binaries and the
+wasm assets are standalone files, so they cannot embed a `lib/` tree; the
+top-level `STDLIB_COMMIT` asset is the identity for those downloads.
+
+**Workflow guard.** `scripts/verify_stdlib_pin.sh` runs after the stdlib
+checkout in every build leg and again in the release job. It fails the release
+when:
+
+- the pin is missing, is not a `stdlib-v*` tag, or is a lightweight tag instead
+  of an annotated tag;
+- the checkout `HEAD` differs from the tag's peeled annotated commit (the
+  moved-tag case);
+- `package.xi` at that commit disagrees with the tag's version suffix;
+- the staged `lib/STDLIB_COMMIT` is missing, is not a 40-character SHA, or
+  differs from the commit resolved in the job;
+- any sealed archive is missing `lib/STDLIB_COMMIT`, or the copy inside the
+  archive differs from the job's resolved commit. The release job repeats the
+  archive check for every downloaded `.zip`/`.tar.gz` before publishing.
+
+**Local / dry-run check.** No tag is created or moved:
+
+```bash
+bash scripts/dry_run_stdlib_commit.sh
+# offline / pre-cloned:
+STDLIB_DIR=/path/to/stdlib bash scripts/dry_run_stdlib_commit.sh
+
+# inspect only:
+bash scripts/verify_stdlib_pin.sh --stdlib stdlib --ref stdlib-v0.65.6 \
+  --out /tmp/STDLIB_COMMIT --stage /tmp/stage
+```
+
+The dry run shallow-clones the pin (or uses `--stdlib`), writes
+`STDLIB_COMMIT`, builds a throwaway archive, and proves the archive carries
+`lib/STDLIB_COMMIT` with the exact commit. For v0.65.6 the expected record is
+`stdlib-v0.65.6` -> `6fdde4ee89f0108025715031e60976ca7d1a5e82`
+(`package.xi` version `0.65.6`).
+
+**Residual.** A tag force-moved to a different commit that still reports the
+same `package.xi` version is only detectable by comparison with a separately
+committed expected SHA; this change records the identity but does not add a
+second pin. The annotated-tag/HEAD/package-version checks catch lightweight
+tags, checkout/tag drift, and tags moved across releases.
 
 ## Preconditions (must be true BEFORE the tag)
 
@@ -46,6 +110,10 @@ No commit/push/tag has been made for this set.
 - [ ] stdlib tag for this set (t3 runtime, JSON `#[owns_return]` /
       `#[consumes_agg]` / `#[borrows_str]` / `#[owns_str]`, `sb_to_str`
       `#[borrows_vec]`, server parse-buffer free) and `STDLIB_VERSION` bump.
+- [ ] stdlib pin resolves with `scripts/verify_stdlib_pin.sh` (annotated tag,
+      `package.xi` version matches) and the dry run proves
+      `lib/STDLIB_COMMIT` in a simulated asset:
+      `bash scripts/dry_run_stdlib_commit.sh`.
 - [ ] workspace `Cargo.toml` version = 0.65.6; `selfhost` `SELFHOST_VERSION`
       parity if the selfhost binary is in scope (it is not).
 - [ ] `release-notes/v0.65.6.md` + `.json` via convert/verify with the

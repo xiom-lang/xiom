@@ -7840,6 +7840,40 @@ fn trapped_under_bounds_checks(code: Option<i32>) -> bool {
     );
 }
 
+// REL-20261106-1840-pulse: a copy-modify-write of a nested aggregate field
+// (`g_regs[0].entries[idx].h`) on a MODULE-GLOBAL Vec[Struct] must keep the
+// element's real aggregate type. Pre-fix `Vec.push` recorded a bogus
+// `local_vec_elem[g_regs] = "Vec[Int]"`, every `g_regs[i]` read memcpy'd 32
+// bytes as `%struct.Vec`, and the write-back fell through to
+// `extractvalue %struct.Vec 0, 0` (clang: "integer constant must have integer
+// type") on v0.65.6.
+#[test] fn e2e_rel20261106_nested_vec_struct_copy() {
+    assert_eq!(
+        compile_and_run("tests/regression/rel20261106_nested_vec_struct_copy/main.xi"),
+        Some(0),
+        "nested Vec[Struct] field copy-modify-write must compile and run (REL-1840)"
+    );
+}
+
+#[test] fn e2e_rel20261106_nested_vec_struct_copy_ir() {
+    let path = "tests/regression/rel20261106_nested_vec_struct_copy/main.xi";
+    let ir = compile_ir(path).expect("REL-1840 fixture must emit IR");
+    assert!(
+        !ir.contains("extractvalue %struct.Vec 0,"),
+        "a struct-element Vec read must never extract from a literal `0` operand:\n{ir}"
+    );
+    // The nested element must resolve to its registered aggregate, not the
+    // generic nested-Vec (`%struct.Vec`) mis-lowering.
+    assert!(
+        ir.contains("%struct.rel20261106_nested_vec_struct_copy.MetricEntry"),
+        "nested MetricEntry element layout must be resolved:\n{ir}"
+    );
+    assert!(
+        ir.contains("%struct.rel20261106_nested_vec_struct_copy.Registry"),
+        "module-global Vec element must resolve to Registry, not Vec:\n{ir}"
+    );
+}
+
 // m297 (REL-20261010-1615-stdlib): `Path.is_dir` -- a stdlib METHOD whose
 // body bare-calls the same-leaf free fn `is_dir(self.inner)` -- self-bound:
 // the G-10 implicit-self override re-bound the already-resolved io.is_dir
@@ -8001,6 +8035,41 @@ fn trapped_under_bounds_checks(code: Option<i32>) -> bool {
     assert!(
         !body.contains("load i8,"),
         "m308: the first-byte pointer compare must be gone; body:\n{body}"
+    );
+}
+
+// REL-20261010-1553 (v0.65.6 Str follow-up): the L6-34 VALUE-argument shape
+// `less(items.get(i).unwrap(), items.get(best).unwrap())` through a
+// `fn(&Str, &Str) -> Bool` parameter. The materializer produced an i64 slot
+// address but the indirect-call signature kept the pre-materialization `i8*`
+// -> clang "'%tmp' defined with type 'i64' but expected 'ptr'". The Int form
+// passed because its value type was already i64.
+#[test] fn e2e_m308_ref_str_cmp_value_args() {
+    assert_eq!(
+        compile_and_run("tests/regression/m308_ref_str_cmp_value_args/main.xi"),
+        Some(0),
+        "by-ref Str comparator value args must compile and compare content (1553)"
+    );
+}
+
+// IR lock for the same shape: the emitted fn-pointer signature and every
+// explicit argument must use the uniform i64 closure ABI. Pre-fix the call
+// was `inttoptr ... to i64 (i64, i8*, i8*)*` with `i8*`-typed addr args.
+#[test] fn e2e_m308_ref_str_cmp_value_args_ir() {
+    let ir = compile_ir("tests/regression/m308_ref_str_cmp_value_args/main.xi")
+        .expect("m308 value-args fixture must compile to IR");
+    let start = ir.find("define i64 @find_min_vec_Str")
+        .expect("m308 value-args: find_min_vec_Str must be defined");
+    let rest = &ir[start..];
+    let end = rest[1..].find("\ndefine ").map(|i| i + 1).unwrap_or(rest.len());
+    let body = &rest[..end];
+    assert!(
+        body.contains("to i64 (i64, i64, i64)*"),
+        "m308 value-args: the indirect comparator call must use the uniform i64 ABI; body:\n{body}"
+    );
+    assert!(
+        !body.contains("to i64 (i64, i8*"),
+        "m308 value-args: the fn-pointer signature must not keep the pre-materialization `i8*`; body:\n{body}"
     );
 }
 
@@ -12193,5 +12262,63 @@ fn e2e_m375_json_parse_tree_reclaim() {
         stdout.contains("json_tree_reclaim_ok"),
         "m375 JSON tree: expected the completion marker; stdout: {stdout}"
     );
+    let _ = std::fs::remove_file(&exe);
+}
+
+// REL-20261104-1820-playground: `match (opt, res) { (Some(a), Ok(b)) => ...,
+// (None, Err(e)) => ..., _ => ... }` lost every nested binding on
+// v0.65.5/v0.65.6 (a printed 0, b/e printed empty). The tuple check block
+// matched unconditionally and the arm-body destructure only bound top-level
+// Ident elements. The fixture validates all four payload shapes, a wildcard
+// arm, a plain tuple control and `let (p, q)` destructuring.
+#[test]
+fn e2e_rel20261104_1820_tuple_option_result() {
+    let base = project_root()
+        .join("tests")
+        .join("regression")
+        .join("rel20261104_1820_tuple_option_result");
+    let src = base.join("main.xi");
+    let exe = project_root()
+        .join("e2e_rel20261104_1820_tuple_option_result.exe");
+    let _ = std::fs::remove_file(&exe);
+
+    let compile = Command::new(xiom_path())
+        .args(["--no-cache", "-o"])
+        .arg(&exe)
+        .arg(&src)
+        .env("XIOM_STDLIB", project_root().join("stdlib"))
+        .current_dir(project_root())
+        .output()
+        .expect("spawn xiom for the rel20261104_1820 tuple fixture");
+    assert!(
+        compile.status.success(),
+        "REL-20261104-1820: fixture must compile; stderr:\n{}",
+        String::from_utf8_lossy(&compile.stderr)
+    );
+    let run = Command::new(&exe)
+        .output()
+        .expect("run the rel20261104_1820 tuple fixture");
+    let stdout = String::from_utf8_lossy(&run.stdout);
+    assert_eq!(
+        run.status.code(),
+        Some(0),
+        "REL-20261104-1820: nested tuple payload bindings must keep their values (pre-fix a=0/b=''); stdout: {stdout}\nstderr:\n{}",
+        String::from_utf8_lossy(&run.stderr)
+    );
+    for needle in [
+        "some_ok a=42 b=7",
+        "none_err e=boom",
+        "some_err a=5 e=bad",
+        "none_ok b=9",
+        "matched a=3 b=8",
+        "wildcard",
+        "pair x=11 y=22",
+        "let p=33 q=44",
+    ] {
+        assert!(
+            stdout.contains(needle),
+            "REL-20261104-1820: expected `{needle}`; stdout: {stdout}"
+        );
+    }
     let _ = std::fs::remove_file(&exe);
 }

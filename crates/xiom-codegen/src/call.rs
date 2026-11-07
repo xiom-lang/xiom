@@ -1320,9 +1320,15 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                             let compiled_args: Vec<(String, String)> = args.iter().enumerate()
                                 .map(|(i, a)| {
                                     let (val, ty) = self.compile_expr(a)?;
-                                    let val = match ref_params.get(i) {
+                                    // REL-20261010-1553: the materializer may
+                                    // rewrite a by-value arg (e.g. `Str` =
+                                    // `i8*`) into an `i64` slot address; the
+                                    // indirect-call signature must use the
+                                    // POST-materialization type or the call
+                                    // mismatches (`i64` value, `ptr` slot).
+                                    let (val, ty) = match ref_params.get(i) {
                                         Some(param) => self.materialize_ref_arg_if_needed(a, val, &ty, param),
-                                        None => val,
+                                        None => (val, ty),
                                     };
                                     Ok::<(String, String), String>((val, ty))
                                 })
@@ -2862,7 +2868,22 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                         // unrecorded receiver's element as "Vec[Int]".
                         if is_struct_elem && !is_wide_scalar {
                             if let Expr::Ident(rid) = receiver.as_ref() {
-                                let recv_elem = self.local.local_vec_elem.get(&rid.name).cloned();
+                                // m-rel20261106 (REL-20261106-1840-pulse): a
+                                // MODULE-GLOBAL receiver records its declared
+                                // type in `global_xiom_types` (m167), not in
+                                // `local_vec_elem`. The old lookup saw no local
+                                // element, treated the struct-element push as an
+                                // UNRECORDED nested Vec, and wrote
+                                // `local_vec_elem["g_regs"] = "Vec[Int]"` -- a
+                                // bogus shadow that then mis-lowered every
+                                // `g_regs[i]` read as a nested `%struct.Vec`
+                                // (`memcpy 32`), so `g_regs[i].entries[j].h`
+                                // lost its aggregate and the write-back emitted
+                                // `extractvalue %struct.Vec 0, 0` (invalid IR).
+                                // Consult the global element type too so a
+                                // struct-element global is NOT overwritten.
+                                let recv_elem = self.local.local_vec_elem.get(&rid.name).cloned()
+                                    .or_else(|| self.global_vec_elem(&rid.name));
                                 // Record when the receiver's elem is a nested
                                 // Vec OR UNRECORDED (`Vec[Vec[Int]].new()` --
                                 // vec_ctor_elem_type can't resolve nested type

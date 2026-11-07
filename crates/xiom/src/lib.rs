@@ -426,17 +426,27 @@ pub fn expand_sources_with_graph(source_paths: &[String]) -> (Vec<String>, Vec<S
     }
 }
 
+/// One child run plus whether XIOM itself terminated it (watchdog
+/// cancellation). REL-20261104-1829-xvector: without this flag a watchdog
+/// kill is indistinguishable from a clang diagnostic failure with empty
+/// stderr, which made the driver look like it failed silently.
+struct ChildRun {
+    output: std::process::Output,
+    cancelled: bool,
+}
+
 /// Audit #12: run a child process while observing the cooperative
 /// cancellation token. Reader threads drain stdout/stderr so a chatty child
 /// cannot deadlock on a full pipe; the poll loop kills the child when a
 /// watchdog (timeout / memory budget) cancels the build. Mirrors
-/// `Command::output()`'s return shape.
+/// `Command::output()`'s return shape, plus the cancellation flag.
 fn run_child_cancellable(
     cmd: &mut std::process::Command,
-) -> std::io::Result<std::process::Output> {
+) -> std::io::Result<ChildRun> {
     use std::io::Read;
     use std::process::Stdio;
     let mut child = cmd.stdout(Stdio::piped()).stderr(Stdio::piped()).spawn()?;
+    let mut cancelled = false;
     let mut out_pipe = child.stdout.take();
     let mut err_pipe = child.stderr.take();
     let out_handle = std::thread::spawn(move || {
@@ -458,6 +468,7 @@ fn run_child_cancellable(
             Some(status) => break status,
             None => {
                 if xiom_codegen::cancel::is_cancelled() {
+                    cancelled = true;
                     let _ = child.kill();
                 }
                 std::thread::sleep(std::time::Duration::from_millis(100));
@@ -466,7 +477,10 @@ fn run_child_cancellable(
     };
     let stdout = out_handle.join().unwrap_or_default();
     let stderr = err_handle.join().unwrap_or_default();
-    Ok(std::process::Output { status, stdout, stderr })
+    Ok(ChildRun {
+        output: std::process::Output { status, stdout, stderr },
+        cancelled,
+    })
 }
 
 /// Production-grade library API: compile XIOM sources and return structured
@@ -1013,6 +1027,7 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
                     Ok(s) => {
                         let code = s.code().unwrap_or(-1);
                         eprintln!("  cached run exit code: {}", code);
+                        report_termination_note(code);
                         record_last_run_exit_code(code);
                         return Ok(());
                     }
@@ -2231,10 +2246,46 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
                 }
             }
             cmd.current_dir(&unique_tmp);
+            // REL-20261104-1829-xvector: keep the exact tool invocation and
+            // the cwd so a failed link is reproducible, and emit a flushed
+            // breadcrumb when XIOM_BUILD_TRACE is set (an external
+            // TerminateProcess/Job-Object kill leaves no stderr at all).
+            let clang_program = cmd.get_program().to_string_lossy().into_owned();
+            let clang_args: Vec<String> = cmd
+                .get_args()
+                .map(|a| a.to_string_lossy().into_owned())
+                .collect();
+            let clang_cwd = cmd
+                .get_current_dir()
+                .map(|p| p.display().to_string())
+                .unwrap_or_else(|| unique_tmp.display().to_string());
+            let quote_arg = |s: &str| {
+                if s.contains(' ') || s.contains('\t') {
+                    format!("\"{s}\"")
+                } else {
+                    s.to_string()
+                }
+            };
+            let clang_command = std::iter::once(clang_program.clone())
+                .chain(clang_args.iter().cloned())
+                .map(|a| quote_arg(&a))
+                .collect::<Vec<_>>()
+                .join(" ");
+            build_trace(&format!("clang-spawn cwd={clang_cwd} command={clang_command}"));
             let clang_output = run_child_cancellable(&mut cmd);
-            let _ = std::fs::remove_dir_all(&unique_tmp);
+            if let Ok(run) = &clang_output {
+                let status = &run.output.status;
+                build_trace(&format!(
+                    "clang-exit code={:?} cancelled={} stdout={}B stderr={}B",
+                    status.code(),
+                    run.cancelled,
+                    run.output.stdout.len(),
+                    run.output.stderr.len()
+                ));
+            }
             match clang_output {
-                Ok(out) if out.status.success() => {
+                Ok(run) if run.output.status.success() => {
+                    let _ = std::fs::remove_dir_all(&unique_tmp);
                     let _ = fs::remove_file(&ir_path);
                     eprintln!("  compiled: {output}");
 
@@ -2266,6 +2317,7 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
                             Ok(s) => {
                                 let code = s.code().unwrap_or(-1);
                                 eprintln!("  exit code: {}", code);
+                                report_termination_note(code);
                                 record_last_run_exit_code(code);
                             }
                             Err(e) => {
@@ -2285,10 +2337,61 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
                     }
                     Ok(())
                 }
-                Ok(out) => {
+                Ok(run) => {
+                    let out = run.output;
                     let stderr = String::from_utf8_lossy(&out.stderr);
                     let stdout = String::from_utf8_lossy(&out.stdout);
-                    eprintln!("error: clang failed with exit code {}", out.status.code().unwrap_or(-1));
+                    let exit = out.status.code();
+                    eprintln!(
+                        "error: clang failed with exit code {}",
+                        exit.unwrap_or(-1)
+                    );
+                    if run.cancelled {
+                        eprintln!(
+                            "  note: xiom's compile watchdog cancelled this build and terminated clang;"
+                        );
+                        eprintln!(
+                            "        this is a timeout/memory-budget cancellation, not a clang diagnostic"
+                        );
+                    }
+                    if exit.is_none() {
+                        eprintln!(
+                            "  note: clang was terminated without an exit code (signal/termination)"
+                        );
+                    } else if exit == Some(-1) {
+                        eprintln!(
+                            "  note: exit -1 (0xFFFFFFFF) is the Windows TerminateProcess sentinel"
+                        );
+                        eprintln!(
+                            "        used by external killers (Job Object close, Stop-Process/.NET"
+                        );
+                        eprintln!(
+                            "        Kill, AV), not a clang/linker diagnostic; re-run with"
+                        );
+                        eprintln!(
+                            "        XIOM_BUILD_TRACE=<file> to record the last phase reached"
+                        );
+                    } else if exit == Some(2147483647) {
+                        // LLVM's Windows sys::Wait maps a child killed with
+                        // TerminateProcess(-1) to `status & 0x7FFFFFFF`, i.e.
+                        // INT_MAX. clang then reports and propagates that
+                        // masked code. Name the real cause.
+                        eprintln!(
+                            "  note: clang reported 2147483647 (0x7FFFFFFF); LLVM masks a"
+                        );
+                        eprintln!(
+                            "        Windows child killed with -1 (TerminateProcess) to INT_MAX."
+                        );
+                        eprintln!(
+                            "        cc1/lld (or clang itself) was terminated externally, not a"
+                        );
+                        eprintln!(
+                            "        codegen/linker diagnostic; re-run with XIOM_BUILD_TRACE=<file>"
+                        );
+                    }
+                    eprintln!("  command: {clang_command}");
+                    eprintln!("  cwd: {clang_cwd}");
+                    eprintln!("  ir: {ir_path}");
                     // REL-20261028-0052-compiler: the Windows linker reports
                     // LNK2005/LNK1169 on STDOUT, not stderr; printing only
                     // stderr hid the duplicate-symbol cause behind "linker
@@ -2306,9 +2409,18 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
                         eprintln!("    Or run: .\\install_deps.ps1");
                     }
                     eprintln!("  stderr: {}", stderr.trim());
+                    if std::env::var_os("XIOM_KEEP_LINK_TMP").is_some() {
+                        eprintln!(
+                            "  note: XIOM_KEEP_LINK_TMP set -- staging dir retained: {}",
+                            unique_tmp.display()
+                        );
+                    } else {
+                        let _ = std::fs::remove_dir_all(&unique_tmp);
+                    }
                     return Err(vec!["compilation failed".to_string()]);
                 }
                 Err(e) => {
+                    let _ = std::fs::remove_dir_all(&unique_tmp);
                     eprintln!("error: cannot run clang: {e}");
                     eprintln!("note: LLVM IR written to {ir_path}");
                     return Err(vec!["compilation failed".to_string()]);
@@ -3185,6 +3297,53 @@ pub fn timing_mark(phase: &str) {
     let t0 = T0.get_or_init(std::time::Instant::now);
     if std::env::var_os("XIOM_TIMINGS").is_some() {
         eprintln!("[timings] {phase} {:.3}s", t0.elapsed().as_secs_f64());
+    }
+    build_trace(phase);
+}
+
+/// REL-20261104-1829-xvector: external-termination breadcrumb.
+///
+/// When `XIOM_BUILD_TRACE` names a file, append one flushed line per compile
+/// phase and per spawned tool. A process terminated by a Job Object close or
+/// `TerminateProcess` writes no final stderr, so an otherwise "silent" exit
+/// leaves the last phase/tool invocation here. Best-effort only: a trace
+/// write can never fail the build.
+pub fn build_trace(msg: &str) {
+    let Some(path) = std::env::var_os("XIOM_BUILD_TRACE") else {
+        return;
+    };
+    use std::io::Write;
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0);
+    if let Ok(mut f) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+    {
+        let _ = writeln!(f, "{now_ms} pid={} {msg}", std::process::id());
+        let _ = f.sync_data();
+    }
+}
+
+/// REL-20261104-1829-xvector: a child code of -1 is not a program return on
+/// Windows (it is the `TerminateProcess` sentinel used by external killers)
+/// and is the `None` fallback on Unix (signal death). Say so instead of
+/// leaving a bare `-1` that reads like a compiler decision.
+fn report_termination_note(code: i32) {
+    if code != -1 {
+        return;
+    }
+    if cfg!(windows) {
+        eprintln!(
+            "  note: exit -1 (0xFFFFFFFF) means the process was terminated externally"
+        );
+        eprintln!(
+            "        (TerminateProcess/Job Object close), not a normal program exit"
+        );
+    } else {
+        eprintln!("  note: exit -1 means the process was terminated by a signal");
     }
 }
 

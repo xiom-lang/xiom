@@ -8308,6 +8308,78 @@ fn main() -> Int { return build(4).len(); }
 }
 
 #[test]
+fn rel20261104_returned_str_through_match_arm_is_not_freed() {
+    // v0.65.6 regression: the return-transfer flag was propagated only to a
+    // function-body tail, not into a match/if/block arm. `Ok(request)` in an
+    // arm therefore left `request` in `str_rebind` WITHOUT recording it as
+    // returned, so the scope-exit drop freed the buffer just stored into the
+    // Result (stdlib http_build_request -> intermittent 6-byte garbage;
+    // orbitdb schema_row text values).
+    let source = r#"
+fn build(n: Int) -> Result[Str, Str] {
+  var request = "GET /";
+  var i = 0;
+  while i < n {
+    request = request + "\r\n";
+    i = i + 1;
+  }
+  match n {
+    0 => { Ok("zero") }
+    _ => { Ok(request) }
+  }
+}
+fn main() -> Int { return 0; }
+"#;
+    let ir = compile(source).expect("REL-20261104: match-arm return must compile");
+    let body = ir
+        .split("define %struct.Result @build(")
+        .nth(1)
+        .and_then(|rest| rest.split("\ndefine ").next())
+        .expect("build body");
+    assert!(
+        !body.contains("vecdrop_do"),
+        "a Str returned through a match arm must transfer, not be freed at \
+         scope exit:\n{ir}"
+    );
+}
+
+#[test]
+fn rel20261104_returned_str_through_enum_variant_is_not_freed() {
+    // Same v0.65.6 class, constructor form: `TValue.VText(s)` is an ordinary
+    // Call in the AST. `mark_returned_roots` must recognize a returned
+    // enum-variant construction as a MOVE of its by-value argument; otherwise
+    // the accumulator keeps its exit drop and frees the payload buffer
+    // (orbitdb tuple2 text round-trip, fuzz seed 1000 rc=19).
+    let source = r#"
+enum MaybeText {
+  Empty,
+  Text(Str),
+}
+fn build(n: Int) -> MaybeText {
+  var s = "";
+  var i = 0;
+  while i < n {
+    s = s + "ab";
+    i = i + 1;
+  }
+  return MaybeText.Text(s);
+}
+fn main() -> Int { return 0; }
+"#;
+    let ir = compile(source).expect("REL-20261104: enum-variant return must compile");
+    let body = ir
+        .split("define %struct.MaybeText @build(")
+        .nth(1)
+        .and_then(|rest| rest.split("\ndefine ").next())
+        .expect("build body");
+    assert!(
+        !body.contains("vecdrop_do"),
+        "a Str moved into a returned enum variant must not be freed at scope \
+         exit:\n{ir}"
+    );
+}
+
+#[test]
 fn m375_elem_str_leaf_is_dropped() {
     // Vec[Struct{Str}]: a fresh Str pushed into an inline struct element is
     // owned by the container. The element drop frees the Str leaf and the
