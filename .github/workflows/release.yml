@@ -453,11 +453,15 @@ jobs:
           name="xiom-$ver-${{ matrix.platform }}.tar.gz"
           tar -czf "$name" -C stage .
           # REL-20261106-1817: fail if the sealed asset lost the identity.
-          if ! tar -tzf "$name" | sed 's|^\./||' | grep -qx 'lib/STDLIB_COMMIT'; then
+          # Write the listing/inner file first: `tar | sed | grep -q` under
+          # pipefail fails with SIGPIPE once grep finds the entry early.
+          tar -tzf "$name" > "$name.list"
+          if ! grep -qxE '(\./)?lib/STDLIB_COMMIT' "$name.list"; then
             echo "::error::archive $name is missing lib/STDLIB_COMMIT"
             exit 1
           fi
-          archived_sha="$(tar -xzOf "$name" ./lib/STDLIB_COMMIT | head -n 1)"
+          tar -xzOf "$name" ./lib/STDLIB_COMMIT > "$name.commit"
+          archived_sha="$(head -n 1 "$name.commit")"
           [ "$archived_sha" = "$stdlib_sha" ] \
             || { echo "::error::archive $name lib/STDLIB_COMMIT ($archived_sha) != $stdlib_sha"; exit 1; }
           if [ "${{ matrix.platform }}" = "linux-x64" ]; then
@@ -628,11 +632,15 @@ jobs:
           name="xiom-$ver-${{ matrix.platform }}.tar.gz"
           tar -czf "$name" -C stage .
           # REL-20261106-1817: fail if the sealed asset lost the identity.
-          if ! tar -tzf "$name" | sed 's|^\./||' | grep -qx 'lib/STDLIB_COMMIT'; then
+          # Write the listing/inner file first: `tar | sed | grep -q` under
+          # pipefail fails with SIGPIPE once grep finds the entry early.
+          tar -tzf "$name" > "$name.list"
+          if ! grep -qxE '(\./)?lib/STDLIB_COMMIT' "$name.list"; then
             echo "::error::archive $name is missing lib/STDLIB_COMMIT"
             exit 1
           fi
-          archived_sha="$(tar -xzOf "$name" ./lib/STDLIB_COMMIT | head -n 1)"
+          tar -xzOf "$name" ./lib/STDLIB_COMMIT > "$name.commit"
+          archived_sha="$(head -n 1 "$name.commit")"
           [ "$archived_sha" = "$stdlib_sha" ] \
             || { echo "::error::archive $name lib/STDLIB_COMMIT ($archived_sha) != $stdlib_sha"; exit 1; }
           shasum -a 256 "$name" > "SHA256SUMS-${{ matrix.platform }}"
@@ -726,11 +734,15 @@ jobs:
           shopt -s nullglob
           for a in artifacts/*.tar.gz; do
             found=1
-            if ! tar -tzf "$a" | sed 's|^\./||' | grep -qx 'lib/STDLIB_COMMIT'; then
+            # Avoid `tar | sed | grep -q` under pipefail: grep exiting early
+            # SIGPIPEs tar and makes a present identity look missing.
+            tar -tzf "$a" > "$a.list"
+            if ! grep -qxE '(\./)?lib/STDLIB_COMMIT' "$a.list"; then
               echo "::error::$a is missing lib/STDLIB_COMMIT"
               exit 1
             fi
-            got="$(tar -xzOf "$a" ./lib/STDLIB_COMMIT | head -n 1)"
+            tar -xzOf "$a" ./lib/STDLIB_COMMIT > "$a.commit"
+            got="$(head -n 1 "$a.commit")"
             [ "$got" = "$expected" ] \
               || { echo "::error::$a lib/STDLIB_COMMIT ($got) != $expected"; exit 1; }
           done
